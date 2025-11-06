@@ -31,13 +31,101 @@ import {
   MessageSquare,
 } from "lucide-react";
 import ITELLogo from "../../assets/ITEL_Logo.png";
-import * as XLSX from "xlsx"; // Add this import for Excel export
+import * as XLSX from "xlsx";
 
 import { DataContext } from "../Datafetching/DataProvider";
 import ChangePasswordModal from "./ChangePasswordModal";
 import ContactModal from "./ContactModal";
 import DocumentsTable from "../DocumentUpload/DocumentsTable";
 import { IPAdress } from "../Datafetching/IPAdrees";
+
+// Material UI imports
+import { DataGrid } from "@mui/x-data-grid";
+import Paper from "@mui/material/Paper";
+import {
+  Button,
+  Box,
+  Typography,
+  TextField,
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Chip,
+  IconButton,
+  Tooltip,
+  Modal,
+} from "@mui/material";
+import { styled } from "@mui/material/styles";
+import CloseIcon from "@mui/icons-material/Close";
+
+// Styled components with proper prop forwarding
+const StyledPaper = styled(Paper)(({ theme }) => ({
+  width: "100%",
+  marginBottom: theme.spacing(2),
+}));
+
+const StatusChip = styled(Chip, {
+  shouldForwardProp: (prop) => prop !== "statusType",
+})(({ theme, statusType }) => {
+  const getStatusColor = (status) => {
+    switch (status) {
+      case "Submitted":
+        return { backgroundColor: "#d4edda", color: "#155724" };
+      case "Pending":
+        return { backgroundColor: "#fff3cd", color: "#856404" };
+      case "Overdue":
+        return { backgroundColor: "#f8d7da", color: "#721c24" };
+      default:
+        return { backgroundColor: "#e2e3e5", color: "#383d41" };
+    }
+  };
+
+  return {
+    ...getStatusColor(statusType),
+    fontWeight: 500,
+    borderRadius: 4,
+  };
+});
+
+const DocStateChip = styled(Chip, {
+  shouldForwardProp: (prop) => prop !== "stateType",
+})(({ theme, stateType }) => {
+  const getStateColor = (state) => {
+    switch (state) {
+      case "Obsolete":
+        return { backgroundColor: "#f8d7da", color: "#721c24" };
+      case "Not Obsolete":
+        return { backgroundColor: "#d4edda", color: "#155724" };
+      default:
+        return { backgroundColor: "#e2e3e5", color: "#383d41" };
+    }
+  };
+
+  return {
+    ...getStateColor(stateType),
+    fontWeight: 500,
+    borderRadius: 4,
+  };
+});
+
+// Common date formatting function
+const formatDate = (dateString) => {
+  if (!dateString) return "-";
+
+  try {
+    // Handle the "Z" suffix properly
+    const formattedDate = dateString.endsWith("Z")
+      ? `${dateString.slice(0, -1)}T00:00:00Z`
+      : dateString;
+
+    return new Date(formattedDate).toLocaleDateString();
+  } catch (error) {
+    console.error("Error parsing date:", error);
+    return dateString; // Return the original string as a fallback
+  }
+};
 
 const StartupDashboard = () => {
   const {
@@ -53,6 +141,7 @@ const StartupDashboard = () => {
     clearAllData,
     userid,
     incuserid,
+    selectedIncubation,
   } = useContext(DataContext);
 
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
@@ -60,8 +149,12 @@ const StartupDashboard = () => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Sorting state for documents table
-  const [sortColumn, setSortColumn] = useState("");
-  const [sortDirection, setSortDirection] = useState("asc");
+  const [sortModel, setSortModel] = useState([
+    {
+      field: "doccatname",
+      sort: "asc",
+    },
+  ]);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -133,7 +226,9 @@ const StartupDashboard = () => {
   const incubateeswebsite = incubatee?.incubateeswebsite;
   const userRecID = incubatee?.usersrecid;
 
-  console.log(incubateeswebsite);
+  const Title = selectedIncubation.incubationshortname;
+  console.log(Title);
+
   // Local state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -144,8 +239,10 @@ const StartupDashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [paginationModel, setPaginationModel] = useState({
+    page: 0,
+    pageSize: 10,
+  });
 
   // Check if XLSX is available
   const isXLSXAvailable = !!XLSX;
@@ -156,42 +253,9 @@ const StartupDashboard = () => {
   }, [documentsData]);
 
   // Sort and filter documents using useMemo for performance
-  // MOVED THIS BEFORE THE CONDITIONAL RETURNS
   const processedDocuments = useMemo(() => {
-    // First sort the data
-    let sortedData = [...localCompanyDoc];
-
-    if (sortColumn) {
-      sortedData.sort((a, b) => {
-        let aVal = a[sortColumn];
-        let bVal = b[sortColumn];
-
-        // Handle null/undefined values
-        if (aVal === null || aVal === undefined) aVal = "";
-        if (bVal === null || bVal === undefined) bVal = "";
-
-        // Handle date sorting
-        if (sortColumn.includes("date")) {
-          aVal = new Date(aVal);
-          bVal = new Date(bVal);
-          if (isNaN(aVal)) aVal = new Date(0);
-          if (isNaN(bVal)) bVal = new Date(0);
-        }
-
-        // Compare values
-        let comparison = 0;
-        if (typeof aVal === "string" && typeof bVal === "string") {
-          comparison = aVal.localeCompare(bVal);
-        } else {
-          comparison = aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-        }
-
-        return sortDirection === "asc" ? comparison : -comparison;
-      });
-    }
-
-    // Then filter the data
-    return sortedData.filter((doc) => {
+    // First filter the data
+    return localCompanyDoc.filter((doc) => {
       const matchesSearch =
         doc.doccatname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         doc.docsubcatname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -204,55 +268,15 @@ const StartupDashboard = () => {
 
       return matchesSearch && matchesStatus && matchesCategory;
     });
-  }, [
-    localCompanyDoc,
-    sortColumn,
-    sortDirection,
-    searchTerm,
-    statusFilter,
-    categoryFilter,
-  ]);
+  }, [localCompanyDoc, searchTerm, statusFilter, categoryFilter]);
 
-  // Pagination calculations
-  const totalPages = Math.ceil(processedDocuments.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedDocuments = processedDocuments.slice(
-    startIndex,
-    startIndex + itemsPerPage
-  );
-
-  // Reset to first page when filters or sorting change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, statusFilter, categoryFilter, sortColumn, sortDirection]);
-
-  // Handle sorting
-  const handleSort = (column) => {
-    if (sortColumn === column) {
-      // If clicking the same column, toggle direction
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      // If clicking a different column, set it as the sort column and default to asc
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
-
-  // Helper function to render sort indicator
-  const renderSortIndicator = (column) => {
-    const isActive = sortColumn === column;
-    const isAsc = sortDirection === "asc";
-
-    return (
-      <span
-        className={`${styles.sortIndicator} ${
-          isActive ? styles.activeSort : styles.inactiveSort
-        }`}
-      >
-        {isActive ? (isAsc ? " ▲" : " ▼") : " ↕"}
-      </span>
-    );
-  };
+  // Add unique ID to each row if not present
+  const rowsWithId = useMemo(() => {
+    return processedDocuments.map((item, index) => ({
+      ...item,
+      id: item.doccatname + item.docsubcatname + index, // Create a unique ID
+    }));
+  }, [processedDocuments]);
 
   // Export to CSV function
   const exportToCSV = () => {
@@ -263,12 +287,8 @@ const StartupDashboard = () => {
       "Document Name": item.documentname || "",
       Status: item.status || "",
       Periodicity: item.periodicity || "",
-      "Upload Date": item.submission_date
-        ? new Date(item.submission_date).toLocaleDateString()
-        : "Not uploaded",
-      "Due Date": item.due_date
-        ? new Date(item.due_date.replace("Z", "")).toLocaleDateString()
-        : "N/A",
+      "Upload Date": formatDate(item.submission_date),
+      "Due Date": formatDate(item.due_date),
       "Document State": item.collecteddocobsoletestate || "---",
     }));
 
@@ -320,12 +340,8 @@ const StartupDashboard = () => {
         "Document Name": item.documentname || "",
         Status: item.status || "",
         Periodicity: item.periodicity || "",
-        "Upload Date": item.submission_date
-          ? new Date(item.submission_date).toLocaleDateString()
-          : "Not uploaded",
-        "Due Date": item.due_date
-          ? new Date(item.due_date.replace("Z", "")).toLocaleDateString()
-          : "N/A",
+        "Upload Date": formatDate(item.submission_date),
+        "Due Date": formatDate(item.due_date),
         "Document State": item.collecteddocobsoletestate || "---",
       }));
 
@@ -431,7 +447,7 @@ const StartupDashboard = () => {
       setSearchTerm("");
       setStatusFilter("all");
       setCategoryFilter("all");
-      setCurrentPage(1);
+      setPaginationModel({ page: 0, pageSize: 10 });
     } catch (error) {
       console.error("Error refreshing documents:", error);
       setTimeout(() => {
@@ -464,31 +480,6 @@ const StartupDashboard = () => {
   // Completion rate: submitted / total
   const completionRate =
     totalDocuments > 0 ? (submittedDocuments / totalDocuments) * 100 : 0;
-
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case "Submitted":
-        return (
-          <span className={`${styles.badge} ${styles.badgeApproved}`}>
-            Submitted
-          </span>
-        );
-      case "Pending":
-        return (
-          <span className={`${styles.badge} ${styles.badgePending}`}>
-            Pending
-          </span>
-        );
-      case "Overdue":
-        return (
-          <span className={`${styles.badge} ${styles.badgeOverdue}`}>
-            Overdue
-          </span>
-        );
-      default:
-        return <span className={styles.badge}>Unknown</span>;
-    }
-  };
 
   const getStatusIcon = (status) => {
     switch (status) {
@@ -573,6 +564,7 @@ const StartupDashboard = () => {
       });
     }
   };
+
   const handleLogout = async () => {
     // Step 1️⃣: Ask for confirmation
     const confirmResult = await Swal.fire({
@@ -648,17 +640,7 @@ const StartupDashboard = () => {
         sessionStorage.removeItem("roleid");
         sessionStorage.removeItem("incuserid");
 
-        // Swal.fire({
-        //   icon: "success",
-        //   title: "Logged out successfully",
-        //   text: "Redirecting to login...",
-        //   timer: 1500,
-        //   showConfirmButton: false,
-        // });
-
         navigate("/", { replace: true });
-
-        // setTimeout(() => navigate("/", { replace: true }), 1200);
       } else {
         Swal.fire({
           icon: "error",
@@ -676,46 +658,9 @@ const StartupDashboard = () => {
       });
     }
   };
+
   const handleBackToAdmin = () => {
     navigate("/Incubation/Dashboard");
-  };
-
-  // const handleBackToAdmin = () => {
-  //   // Navigate to the appropriate dashboard based on role
-  //   if (Number(roleid) === 1) {
-  //     navigate("/Admin/Dashboard");
-  //   } else if (Number(roleid) === 3) {
-  //     navigate("/Incubator/Dashboard");
-  //   } else if (Number(roleid) === 4) {
-  //     navigate("/Startup/Dashboard");
-  //   } else {
-  //     // Fallback to incubation dashboard if role is not recognized
-  //     navigate("/Incubation/Dashboard");
-  //   }
-  // };
-  // Pagination handlers
-  const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
-    }
-  };
-
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
-    }
-  };
-
-  const handlePageClick = (pageNumber) => {
-    setCurrentPage(pageNumber);
-  };
-
-  // Clear all filters
-  const handleClearFilters = () => {
-    setSearchTerm("");
-    setStatusFilter("all");
-    setCategoryFilter("all");
-    setCurrentPage(1);
   };
 
   const handleAbolishDocument = async (filepath) => {
@@ -790,6 +735,141 @@ const StartupDashboard = () => {
     }
   };
 
+  // Define columns for DataGrid with proper null checks
+  const columns = [
+    {
+      field: "doccatname",
+      headerName: "Document Category",
+      width: 200,
+      sortable: true,
+      renderCell: (params) => (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          {getStatusIcon(params.row?.status)}
+          <Typography variant="body2">{params.value}</Typography>
+        </Box>
+      ),
+    },
+    {
+      field: "docsubcatname",
+      headerName: "Document SubCategory",
+      width: 200,
+      sortable: true,
+    },
+    {
+      field: "documentname",
+      headerName: "Document Name",
+      width: 200,
+      sortable: true,
+    },
+    {
+      field: "status",
+      headerName: "Status",
+      width: 150,
+      sortable: true,
+      renderCell: (params) => (
+        <StatusChip
+          statusType={params.value}
+          label={params.value}
+          size="small"
+        />
+      ),
+    },
+    {
+      field: "periodicity",
+      headerName: "Periodicity",
+      width: 150,
+      sortable: true,
+    },
+    {
+      field: "submission_date",
+      headerName: "Submission Date",
+      width: 150,
+      sortable: true,
+      renderCell: (params) => {
+        if (!params || !params.row) return "Not submitted";
+        return params.row.submission_date
+          ? formatDate(params.row.submission_date)
+          : "Not submitted";
+      },
+    },
+    {
+      field: "due_date",
+      headerName: "Due Date",
+      width: 150,
+      sortable: true,
+      renderCell: (params) => {
+        if (!params || !params.row) return <Box>-</Box>;
+        const statusNormalized = (params.row.status || "").toLowerCase();
+        return (
+          <Box
+            sx={{
+              color: statusNormalized === "overdue" ? "error.main" : "inherit",
+            }}
+          >
+            {formatDate(params.row.due_date)}
+          </Box>
+        );
+      },
+    },
+    {
+      field: "collecteddocobsoletestate",
+      headerName: "Doc State",
+      width: 150,
+      sortable: true,
+      renderCell: (params) =>
+        params.value ? (
+          <DocStateChip
+            stateType={params.value}
+            label={params.value}
+            size="small"
+          />
+        ) : (
+          <Typography variant="body2">---</Typography>
+        ),
+    },
+    {
+      field: "actions",
+      headerName: "Actions",
+      width: 200,
+      sortable: false,
+      renderCell: (params) => (
+        <Box sx={{ display: "flex", gap: 1 }}>
+          {params.row?.filepath && params.row?.status === "Submitted" ? (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => handleViewDocument(params.row.filepath)}
+            >
+              View Doc
+            </Button>
+          ) : (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => handleViewDocument(params.row?.filepath)}
+              disabled={!params.row?.filepath}
+            >
+              {params.row?.filepath ? "View Doc" : "No File"}
+            </Button>
+          )}
+
+          {params.row?.collecteddocobsoletestate === "Not Obsolete" &&
+            Number(roleid) !== 1 &&
+            Number(roleid) !== 3 && (
+              <Button
+                variant="outlined"
+                color="error"
+                size="small"
+                onClick={() => handleAbolishDocument(params.row?.filepath)}
+              >
+                Obsolete
+              </Button>
+            )}
+        </Box>
+      ),
+    },
+  ];
+
   return (
     <div>
       {/* Navigation bar */}
@@ -798,7 +878,7 @@ const StartupDashboard = () => {
           <div className={style.logoSection}>
             <img src={ITELLogo} className={style.logoIcon} alt="ITEL Logo" />
             <div>
-              <h1 className={style.title}>ITEL Incubation Portal</h1>
+              <h1 className={style.title}>{Title}</h1>
               <p className={style.subtitle}>
                 {Number(roleid) === 1
                   ? "Admin Dashboard"
@@ -883,7 +963,6 @@ const StartupDashboard = () => {
 
             {/* Contact Modal */}
             {isContactModalOpen && (
-              // && Number(roleid) === 4
               <ContactModal
                 isOpen={isContactModalOpen}
                 onClose={() => setIsContactModalOpen(false)}
@@ -957,7 +1036,6 @@ const StartupDashboard = () => {
                   <div className={styles.headerBadge}>
                     Field Of Work: {incubateesfieldofworkname}
                   </div>
-                  {/* {Number(roleid) === 4 && ( )} */}
                   <div
                     className={styles.headerBadge}
                     onClick={() => setIsContactModalOpen(true)}
@@ -1078,281 +1156,158 @@ const StartupDashboard = () => {
         <br />
 
         {/* Filter Section */}
-        <div className={styles.filterSection}>
-          <div className={styles.filterGroup}>
-            <div className={styles.searchBox}>
-              <Search className={styles.searchIcon} />
-              <input
-                type="text"
-                placeholder="Search documents..."
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className={styles.searchInput}
-              />
-            </div>
 
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className={styles.filterSelect}
-            >
-              <option value="all">All Statuses</option>
-              {uniqueStatuses.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={categoryFilter}
-              onChange={(e) => {
-                setCategoryFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className={styles.filterSelect}
-            >
-              <option value="all">All Categories</option>
-              {uniqueCategories.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
-
-            {/* Export Buttons */}
-            <button
-              className={styles.exportButton}
-              onClick={exportToCSV}
-              title="Export as CSV"
-            >
-              <Download size={16} />
-              Export CSV
-            </button>
-            <button
-              className={`${styles.exportButton} ${
-                !isXLSXAvailable ? styles.disabledButton : ""
-              }`}
-              onClick={exportToExcel}
-              title={
-                isXLSXAvailable
-                  ? "Export as Excel"
-                  : "Excel export not available"
-              }
-              disabled={!isXLSXAvailable}
-            >
-              <Download size={16} />
-              Export Excel
-            </button>
-          </div>
-
-          <div className={styles.resultsInfo}>
-            Showing {paginatedDocuments.length} of {processedDocuments.length}{" "}
-            documents (filtered from {localCompanyDoc.length} total)
-          </div>
-        </div>
-
-        {/* Documents Table */}
-        <div className={styles.documentsTableFull}>
-          <table>
-            <thead>
-              <tr className="bg-gray-200">
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => handleSort("doccatname")}
+        {/* Documents Table with Material UI */}
+        <div className={styles.documentsTableFull} style={{ width: "100%" }}>
+          <StyledPaper>
+            <div className={styles.filterSection}>
+              <div className={styles.filterGroup}>
+                {/* Export Buttons */}
+                <div
+                  className={styles.cardHeader}
+                  style={{ display: "flex", gap: "2rem" }}
                 >
-                  Document Category {renderSortIndicator("doccatname")}
-                </th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => handleSort("docsubcatname")}
-                >
-                  Document SubCategory {renderSortIndicator("docsubcatname")}
-                </th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => handleSort("documentname")}
-                >
-                  Document Name {renderSortIndicator("documentname")}
-                </th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => handleSort("status")}
-                >
-                  Status {renderSortIndicator("status")}
-                </th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => handleSort("periodicity")}
-                >
-                  Periodicity {renderSortIndicator("periodicity")}
-                </th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => handleSort("submission_date")}
-                >
-                  Upload Date {renderSortIndicator("submission_date")}
-                </th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => handleSort("due_date")}
-                >
-                  Due Date {renderSortIndicator("due_date")}
-                </th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => handleSort("collecteddocobsoletestate")}
-                >
-                  Doc State {renderSortIndicator("collecteddocobsoletestate")}
-                </th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedDocuments.length > 0 ? (
-                paginatedDocuments.map((doc, index) => (
-                  <tr
-                    key={`${doc.incubateesname}-${doc.doccatname}-${doc.docsubcatname}-${index}`}
-                    className={
-                      doc.status === "Overdue"
-                        ? styles.overdueRow
-                        : doc.status === "Pending"
-                        ? styles.pendingRow
-                        : ""
-                    }
+                  <Typography variant="h5">Documents</Typography>
+                  <div className={styles.searchBox}>
+                    <Search className={styles.searchIcon} />
+                    <input
+                      type="text"
+                      placeholder="Search documents..."
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setPaginationModel({ ...paginationModel, page: 0 });
+                      }}
+                      className={styles.searchInput}
+                    />
+                  </div>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => {
+                      setStatusFilter(e.target.value);
+                      setPaginationModel({ ...paginationModel, page: 0 });
+                    }}
+                    className={styles.filterSelect}
                   >
-                    <td className="flex items-center gap-2">
-                      {getStatusIcon(doc.status)}
-                      {doc.doccatname}
-                    </td>
-                    <td className="flex items-center gap-2">
-                      {doc.docsubcatname}
-                    </td>
-                    <td className="flex items-center gap-2">
-                      {doc.documentname}
-                    </td>
-                    <td>{getStatusBadge(doc.status)}</td>
-                    <td>{doc.periodicity}</td>
-                    <td>
-                      {doc.submission_date ? (
-                        new Date(doc.submission_date).toLocaleDateString()
-                      ) : (
-                        <em>Not uploaded</em>
-                      )}
-                    </td>
-                    <td>
-                      {doc.due_date
-                        ? new Date(
-                            doc.due_date.replace("Z", "")
-                          ).toLocaleDateString()
-                        : "N/A"}
-                    </td>
-                    <td>
-                      {doc.collecteddocobsoletestate ? (
-                        <p className={styles.docStateBadge}>
-                          {doc.collecteddocobsoletestate}
-                        </p>
-                      ) : (
-                        "---"
-                      )}
-                    </td>
-                    <td className="text-right">
-                      <div className={styles.actionButtons}>
-                        {doc.filepath && doc.status === "Submitted" ? (
-                          <button
-                            className={styles.viewButton}
-                            onClick={() => handleViewDocument(doc.filepath)}
-                          >
-                            View Doc
-                          </button>
-                        ) : (
-                          <button
-                            className={styles.disabledButton}
-                            onClick={() => handleViewDocument(doc.filepath)}
-                            disabled={!doc.filepath}
-                          >
-                            {doc.filepath ? "View Doc" : "No File"}
-                          </button>
-                        )}
+                    <option value="all">All Statuses</option>
+                    {uniqueStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
 
-                        {doc.collecteddocobsoletestate === "Not Obsolete" &&
-                          Number(roleid) !== 1 &&
-                          Number(roleid) !== 3 && (
-                            <button
-                              className={styles.obsoleteButton}
-                              onClick={() =>
-                                handleAbolishDocument(doc.filepath)
-                              }
-                              title="Mark document as obsolete"
-                            >
-                              Obsolete
-                            </button>
-                          )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="9" className={styles.noData}>
-                    No documents found matching your filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => {
+                      setCategoryFilter(e.target.value);
+                      setPaginationModel({ ...paginationModel, page: 0 });
+                    }}
+                    className={styles.filterSelect}
+                  >
+                    <option value="all">All Categories</option>
+                    {uniqueCategories.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                  <Box sx={{ display: "flex", gap: 1 }}>
+                    <Button
+                      variant="outlined"
+                      startIcon={<Download size={16} />}
+                      onClick={exportToCSV}
+                      title="Export as CSV"
+                    >
+                      Export CSV
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      startIcon={<Download size={16} />}
+                      onClick={exportToExcel}
+                      title="Export as Excel"
+                      disabled={!isXLSXAvailable}
+                    >
+                      Export Excel
+                    </Button>
+                  </Box>
+                </div>
+              </div>
 
-          {isPreviewOpen && (
-            <div className={styles.previewModal}>
-              <div className={styles.previewContent}>
-                <button
-                  className={styles.closeButton}
-                  onClick={() => setIsPreviewOpen(false)}
-                >
-                  ✖
-                </button>
-                <iframe
-                  src={previewUrl}
-                  title="Document Preview"
-                  width="100%"
-                  height="500px"
-                  style={{ border: "none" }}
-                />
+              <div className={styles.resultsInfo}>
+                Showing {processedDocuments.length} of {localCompanyDoc.length}{" "}
+                documents
               </div>
             </div>
-          )}
 
-          {/* Add this after your closing </table> tag, before </div> */}
-          {totalPages > 1 && (
-            <div className={styles.paginationControls}>
-              <button
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-              >
-                Previous
-              </button>
-
-              <span>
-                Page {currentPage} of {totalPages}
-              </span>
-
-              <button
-                onClick={() =>
-                  setCurrentPage((prev) => Math.min(totalPages, prev + 1))
-                }
-                disabled={currentPage === totalPages}
-              >
-                Next
-              </button>
-            </div>
-          )}
+            <DataGrid
+              rows={rowsWithId}
+              columns={columns}
+              paginationModel={paginationModel}
+              onPaginationModelChange={setPaginationModel}
+              pageSizeOptions={[5, 10, 25, 50]}
+              sortModel={sortModel}
+              onSortModelChange={setSortModel}
+              disableRowSelectionOnClick
+              sx={{
+                border: 0,
+                "& .MuiDataGrid-root": {
+                  overflow: "auto",
+                },
+                "& .MuiDataGrid-cell": {
+                  whiteSpace: "normal !important",
+                  wordWrap: "break-word !important",
+                },
+                "& .MuiDataGrid-columnHeaders": {
+                  backgroundColor: "#f5f5f5",
+                  fontWeight: "bold",
+                },
+                "& .MuiDataGrid-columnHeader--sortable": {
+                  cursor: "pointer",
+                  "&:hover": {
+                    backgroundColor: "#eeeeee",
+                  },
+                },
+              }}
+            />
+          </StyledPaper>
         </div>
+
+        {/* Preview Modal */}
+        <Modal
+          open={isPreviewOpen}
+          onClose={() => setIsPreviewOpen(false)}
+          aria-labelledby="document-preview-modal"
+          aria-describedby="modal for document preview"
+        >
+          <Box
+            sx={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: "80%",
+              bgcolor: "background.paper",
+              boxShadow: 24,
+              p: 4,
+              maxHeight: "80vh",
+              overflow: "auto",
+            }}
+          >
+            <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
+              <IconButton onClick={() => setIsPreviewOpen(false)}>
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            <iframe
+              src={previewUrl}
+              title="Document Preview"
+              width="100%"
+              height="500px"
+              style={{ border: "none" }}
+            />
+          </Box>
+        </Modal>
 
         {/* Add Document Modal - Only for users */}
         {isModalOpen && Number(roleid) === 4 && (

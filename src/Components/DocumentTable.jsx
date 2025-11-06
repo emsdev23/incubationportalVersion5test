@@ -1,4 +1,3 @@
-// DocumentTable.jsx
 import React, { useState, useContext, useEffect, useMemo } from "react";
 import styles from "./DocumentTable.module.css";
 import { NavLink } from "react-router-dom";
@@ -6,11 +5,74 @@ import { DataContext } from "../Components/Datafetching/DataProvider";
 import api from "./Datafetching/api";
 import Swal from "sweetalert2";
 import style from "../Components/StartupDashboard/StartupDashboard.module.css";
-import * as XLSX from "xlsx"; // Add this import for Excel export
+import * as XLSX from "xlsx";
 import { IPAdress } from "./Datafetching/IPAdrees";
 import { Download } from "lucide-react";
+import { DataGrid } from "@mui/x-data-grid";
+import Paper from "@mui/material/Paper";
+import {
+  Button,
+  Box,
+  Typography,
+  Modal,
+  IconButton,
+  Chip,
+  TextField,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+} from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import { styled } from "@mui/material/styles";
+
+// Styled components for custom styling
+const StyledPaper = styled(Paper)(({ theme }) => ({
+  // height: 500,
+  width: "100%",
+  marginTop: theme.spacing(2),
+}));
+
+const StyledChip = styled(Chip)(({ theme, status }) => {
+  const getStatusColor = (status) => {
+    switch (status) {
+      case "submitted":
+        return { backgroundColor: "#d1fae5", color: "#065f46" };
+      case "pending":
+        return { backgroundColor: "#fef3c7", color: "#92400e" };
+      case "overdue":
+        return { backgroundColor: "#fee2e2", color: "#991b1b" };
+      default:
+        return { backgroundColor: "#f3f4f6", color: "#374151" };
+    }
+  };
+
+  return {
+    ...getStatusColor(status),
+    fontWeight: 500,
+    borderRadius: 4,
+  };
+});
+
+// Common date formatting function
+const formatDate = (dateString) => {
+  if (!dateString) return "-";
+
+  try {
+    // Handle the "Z" suffix properly
+    const formattedDate = dateString.endsWith("Z")
+      ? `${dateString.slice(0, -1)}T00:00:00Z`
+      : dateString;
+
+    return new Date(formattedDate).toLocaleDateString();
+  } catch (error) {
+    console.error("Error parsing date:", error);
+    return dateString; // Return the original string as a fallback
+  }
+};
 
 export default function DocumentTable() {
+  // ALL HOOKS MUST BE DECLARED AT THE TOP OF THE COMPONENT
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const {
@@ -27,48 +89,21 @@ export default function DocumentTable() {
 
   const [tempFromYear, setTempFromYear] = useState(fromYear);
   const [tempToYear, setTempToYear] = useState(toYear);
-
   const [searchTerm, setSearchTerm] = useState("");
   const [stageFilter, setStageFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  // Sorting state
-  const [sortColumn, setSortColumn] = useState("");
-  const [sortDirection, setSortDirection] = useState("asc");
-
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  // Pagination state for Material UI
+  const [paginationModel, setPaginationModel] = useState({
+    page: 0,
+    pageSize: 10,
+  });
 
   // Loading state for year filter
   const [yearLoading, setYearLoading] = useState(false);
 
   // Check if XLSX is available
   const isXLSXAvailable = !!XLSX;
-
-  // Reset to first page when filters or sorting change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [
-    searchTerm,
-    stageFilter,
-    statusFilter,
-    itemsPerPage,
-    sortColumn,
-    sortDirection,
-  ]);
-
-  // Helper to format dates
-  const formatDate = (dateStr) => {
-    if (!dateStr) return "-";
-    const d = new Date(dateStr);
-    if (isNaN(d)) return "-";
-    return d.toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
 
   // Map stage names to filter values
   const getStageFilterValue = (stageName) => {
@@ -94,54 +129,11 @@ export default function DocumentTable() {
     }
   };
 
-  // Handle sorting
-  const handleSort = (column) => {
-    if (sortColumn === column) {
-      // If clicking the same column, toggle direction
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      // If clicking a different column, set it as the sort column and default to asc
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
+  // Filter data using useMemo for performance
+  const filteredData = useMemo(() => {
+    if (!companyDoc) return [];
 
-  // Sort and filter data using useMemo for performance
-  const processedData = useMemo(() => {
-    // First sort the data
-    let sortedData = [...(companyDoc || [])];
-
-    if (sortColumn) {
-      sortedData.sort((a, b) => {
-        let aVal = a[sortColumn];
-        let bVal = b[sortColumn];
-
-        // Handle null/undefined values
-        if (aVal === null || aVal === undefined) aVal = "";
-        if (bVal === null || bVal === undefined) bVal = "";
-
-        // Handle date sorting
-        if (sortColumn.includes("date")) {
-          aVal = new Date(aVal);
-          bVal = new Date(bVal);
-          if (isNaN(aVal)) aVal = new Date(0);
-          if (isNaN(bVal)) bVal = new Date(0);
-        }
-
-        // Compare values
-        let comparison = 0;
-        if (typeof aVal === "string" && typeof bVal === "string") {
-          comparison = aVal.localeCompare(bVal);
-        } else {
-          comparison = aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-        }
-
-        return sortDirection === "asc" ? comparison : -comparison;
-      });
-    }
-
-    // Then filter the data
-    return sortedData.filter((item) => {
+    return companyDoc.filter((item) => {
       const statusNormalized = (item.status || "").toLowerCase();
 
       const matchesSearch =
@@ -155,7 +147,6 @@ export default function DocumentTable() {
           .toLowerCase()
           .includes(searchTerm.toLowerCase());
 
-      // FIXED: Compare stage names instead of numbers
       const matchesStage =
         stageFilter === "all" ||
         (item.incubateesstagelevel &&
@@ -166,143 +157,15 @@ export default function DocumentTable() {
 
       return matchesSearch && matchesStage && matchesStatus;
     });
-  }, [
-    companyDoc,
-    sortColumn,
-    sortDirection,
-    searchTerm,
-    stageFilter,
-    statusFilter,
-  ]);
+  }, [companyDoc, searchTerm, stageFilter, statusFilter]);
 
-  // Early return AFTER all hooks are defined
-  if (loading) return <p>Loading documents...</p>;
-
-  // Pagination calculations
-  const totalItems = processedData.length;
-  const totalPages = Math.ceil(totalItems / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentItems = processedData.slice(startIndex, endIndex);
-
-  // Get display name for current stage filter
-  const getStageDisplayName = (filterValue) => {
-    switch (filterValue) {
-      case "1":
-        return "Pre Seed Stage";
-      case "2":
-        return "Seed Stage";
-      case "3":
-        return "Early Stage";
-      case "4":
-        return "Growth Stage";
-      case "5":
-        return "Expansion Stage";
-      default:
-        return "All Stages";
-    }
-  };
-
-  // Fixed fetchDocumentsByYear function
-  const fetchDocumentsByYear = async () => {
-    setYearLoading(true);
-    try {
-      const response = await api.post("/generic/getcollecteddocsdash", {
-        userId: Number(roleid) === 1 ? "ALL" : userid,
-        startYear: tempFromYear,
-        endYear: tempToYear,
-      });
-
-      // Handle different response structures
-      let responseData;
-      if (response.data && Array.isArray(response.data)) {
-        responseData = response.data;
-      } else if (
-        response.data &&
-        response.data.data &&
-        Array.isArray(response.data.data)
-      ) {
-        responseData = response.data.data;
-      } else if (
-        response.data &&
-        response.data.result &&
-        Array.isArray(response.data.result)
-      ) {
-        responseData = response.data.result;
-      } else {
-        console.warn("Unexpected response structure:", response);
-        responseData = [];
-      }
-
-      setCompanyDoc(responseData);
-      setCurrentPage(1);
-      setFromYear(tempFromYear);
-      setToYear(tempToYear);
-    } catch (err) {
-      console.error("Error fetching documents by year:", err);
-      setCompanyDoc([]);
-      alert(
-        `Error fetching documents: ${err.message || "Unknown error occurred"}`
-      );
-    } finally {
-      setYearLoading(false);
-    }
-  };
-
-  // Page navigation functions
-  const goToPage = (page) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-    }
-  };
-
-  const goToNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
-    }
-  };
-
-  const goToPrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
-    }
-  };
-
-  // Generate page numbers to display
-  const getPageNumbers = () => {
-    const pages = [];
-    const maxVisiblePages = 5;
-
-    if (totalPages <= maxVisiblePages) {
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
-      }
-    } else {
-      if (currentPage <= 3) {
-        for (let i = 1; i <= 4; i++) {
-          pages.push(i);
-        }
-        pages.push("...");
-        pages.push(totalPages);
-      } else if (currentPage >= totalPages - 2) {
-        pages.push(1);
-        pages.push("...");
-        for (let i = totalPages - 3; i <= totalPages; i++) {
-          pages.push(i);
-        }
-      } else {
-        pages.push(1);
-        pages.push("...");
-        pages.push(currentPage - 1);
-        pages.push(currentPage);
-        pages.push(currentPage + 1);
-        pages.push("...");
-        pages.push(totalPages);
-      }
-    }
-
-    return pages;
-  };
+  // Add unique ID to each row if not present
+  const rowsWithId = useMemo(() => {
+    return filteredData.map((item, index) => ({
+      ...item,
+      id: item.id || `${item.incubateesname}-${item.documentname}-${index}`,
+    }));
+  }, [filteredData]);
 
   const handleViewDocument = async (filepath) => {
     try {
@@ -374,26 +237,233 @@ export default function DocumentTable() {
     }
   };
 
-  // Helper function to render sort indicator
-  const renderSortIndicator = (column) => {
-    const isActive = sortColumn === column;
-    const isAsc = sortDirection === "asc";
+  // Define columns for DataGrid with proper null checks
+  const columns = useMemo(
+    () => [
+      {
+        field: "incubateesname",
+        headerName: "Company",
+        width: 180,
+        sortable: true,
+      },
+      {
+        field: "doccatname",
+        headerName: "Document Category",
+        width: 180,
+        sortable: true,
+      },
+      {
+        field: "docsubcatname",
+        headerName: "Document Subcategory",
+        width: 180,
+        sortable: true,
+      },
+      {
+        field: "documentname",
+        headerName: "Document Name",
+        width: 200,
+        sortable: true,
+      },
+      ...(Number(roleid) === 1 || Number(roleid) === 3
+        ? [
+            {
+              field: "incubateesstagelevel",
+              headerName: "Stage",
+              width: 150,
+              sortable: true,
+              renderCell: (params) => (
+                <Chip
+                  label={params.value || "Unknown"}
+                  size="small"
+                  variant="outlined"
+                />
+              ),
+            },
+          ]
+        : []),
+      {
+        field: "submission_date",
+        headerName: "Submission Date",
+        width: 150,
+        sortable: true,
+        renderCell: (params) => {
+          if (!params || !params.row) return "Not submitted";
+          return params.row.submission_date
+            ? formatDate(params.row.submission_date)
+            : "Not submitted";
+        },
+      },
+      {
+        field: "due_date",
+        headerName: "Due Date",
+        width: 150,
+        sortable: true,
+        renderCell: (params) => {
+          if (!params || !params.row) return <Box>-</Box>;
+          const statusNormalized = (params.row.status || "").toLowerCase();
+          return (
+            <Box
+              sx={{
+                color:
+                  statusNormalized === "overdue" ? "error.main" : "inherit",
+              }}
+            >
+              {formatDate(params.row.due_date)}
+            </Box>
+          );
+        },
+      },
+      {
+        field: "status",
+        headerName: "Status",
+        width: 120,
+        sortable: true,
+        renderCell: (params) => {
+          if (!params) return <Chip label="Unknown" size="small" />;
+          const statusNormalized = (params.value || "").toLowerCase();
 
-    return (
-      <span
-        className={`${styles.sortIndicator} ${
-          isActive ? styles.activeSort : styles.inactiveSort
-        }`}
-      >
-        {isActive ? (isAsc ? " ▲" : " ▼") : " ↕"}
-      </span>
-    );
+          return (
+            <StyledChip
+              label={params.value || "Unknown"}
+              status={statusNormalized}
+              size="small"
+            />
+          );
+        },
+      },
+      {
+        field: "collecteddocobsoletestate",
+        headerName: "Doc State",
+        width: 120,
+        sortable: true,
+        renderCell: (params) => {
+          if (!params) return <span>---</span>;
+          return params.value ? (
+            <Chip
+              label={params.value}
+              size="small"
+              sx={{
+                backgroundColor: "#ff8787",
+                color: "#c92a2a",
+                fontWeight: "600",
+              }}
+            />
+          ) : (
+            <span>---</span>
+          );
+        },
+      },
+      {
+        field: "actions",
+        headerName: "Actions",
+        width: 120,
+        sortable: false,
+        renderCell: (params) => {
+          if (!params || !params.row)
+            return (
+              <Button
+                variant="contained"
+                size="small"
+                disabled
+                sx={{
+                  backgroundColor: "#6b7280",
+                  color: "white",
+                  "&.Mui-disabled": {
+                    backgroundColor: "#6b7280",
+                    color: "white",
+                    opacity: 0.7,
+                  },
+                }}
+              >
+                No File
+              </Button>
+            );
+
+          return params.row.filepath ? (
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => handleViewDocument(params.row.filepath)}
+            >
+              View Doc
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              size="small"
+              disabled
+              sx={{
+                backgroundColor: "#6b7280",
+                color: "white",
+                "&.Mui-disabled": {
+                  backgroundColor: "#6b7280",
+                  color: "white",
+                  opacity: 0.7,
+                },
+              }}
+            >
+              No File
+            </Button>
+          );
+        },
+      },
+    ],
+    [roleid, handleViewDocument]
+  );
+
+  // NOW WE CAN HAVE CONDITIONAL RETURNS AFTER ALL HOOKS
+  if (loading) return <p>Loading documents...</p>;
+
+  // Fixed fetchDocumentsByYear function
+  const fetchDocumentsByYear = async () => {
+    setYearLoading(true);
+    try {
+      const response = await api.post("/generic/getcollecteddocsdash", {
+        userId: Number(roleid) === 1 ? "ALL" : userid,
+        startYear: tempFromYear,
+        endYear: tempToYear,
+      });
+
+      // Handle different response structures
+      let responseData;
+      if (response.data && Array.isArray(response.data)) {
+        responseData = response.data;
+      } else if (
+        response.data &&
+        response.data.data &&
+        Array.isArray(response.data.data)
+      ) {
+        responseData = response.data.data;
+      } else if (
+        response.data &&
+        response.data.result &&
+        Array.isArray(response.data.result)
+      ) {
+        responseData = response.data.result;
+      } else {
+        console.warn("Unexpected response structure:", response);
+        responseData = [];
+      }
+
+      setCompanyDoc(responseData);
+      setPaginationModel({ ...paginationModel, page: 0 });
+      setFromYear(tempFromYear);
+      setToYear(tempToYear);
+    } catch (err) {
+      console.error("Error fetching documents by year:", err);
+      setCompanyDoc([]);
+      alert(
+        `Error fetching documents: ${err.message || "Unknown error occurred"}`
+      );
+    } finally {
+      setYearLoading(false);
+    }
   };
 
   // Export to CSV function
   const exportToCSV = () => {
     // Create a copy of the data for export
-    const exportData = processedData.map((item) => ({
+    const exportData = filteredData.map((item) => ({
       "Company Name": item.incubateesname || "",
       "Document Category": item.doccatname || "",
       "Document Subcategory": item.docsubcatname || "",
@@ -449,7 +519,7 @@ export default function DocumentTable() {
 
     try {
       // Create a copy of the data for export
-      const exportData = processedData.map((item) => ({
+      const exportData = filteredData.map((item) => ({
         "Company Name": item.incubateesname || "",
         "Document Category": item.doccatname || "",
         "Document Subcategory": item.docsubcatname || "",
@@ -485,368 +555,220 @@ export default function DocumentTable() {
   return (
     <div className={styles.card}>
       <div className={styles.cardHeader}>
-        <h2>Incubatee Document Submission</h2>
-        <div className={styles.exportButtons}>
-          <button
-            className={styles.exportButton}
+        <Typography variant="h5">Incubatee Document Submission</Typography>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
             onClick={exportToCSV}
             title="Export as CSV"
           >
-            <Download size={16} />
             Export CSV
-          </button>
-          <button
-            className={`${styles.exportButton} ${
-              !isXLSXAvailable ? styles.disabledButton : ""
-            }`}
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
             onClick={exportToExcel}
-            title={
-              isXLSXAvailable ? "Export as Excel" : "Excel export not available"
-            }
+            title="Export as Excel"
             disabled={!isXLSXAvailable}
           >
-            <Download size={16} />
             Export Excel
-          </button>
-        </div>
+          </Button>
+        </Box>
       </div>
 
-      <div className={styles.filters}>
-        <input
+      {/* Year Filters Section */}
+      <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
+        <TextField
+          label="From Year"
           type="number"
+          variant="outlined"
+          size="small"
           value={tempFromYear}
           onChange={(e) => setTempFromYear(e.target.value)}
-          placeholder="From Year"
-          className={styles.input}
+          sx={{ minWidth: 120 }}
         />
-        <input
+        <TextField
+          label="To Year"
           type="number"
+          variant="outlined"
+          size="small"
           value={tempToYear}
           onChange={(e) => setTempToYear(e.target.value)}
-          placeholder="To Year"
-          className={styles.input}
+          sx={{ minWidth: 120 }}
         />
-        <button
-          className={styles.button}
+        <Button
+          variant="contained"
           onClick={fetchDocumentsByYear}
           disabled={yearLoading}
+          sx={{ minWidth: 100 }}
         >
           {yearLoading ? "Loading..." : "Apply"}
-        </button>
-      </div>
+        </Button>
+      </Box>
 
-      {/* Filters */}
-      <div className={styles.filters}>
-        <input
-          type="text"
-          placeholder="Search companies or documents..."
+      {/* Filters Section */}
+      <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
+        <TextField
+          label="Search companies or documents..."
+          variant="outlined"
+          size="small"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className={styles.input}
+          sx={{ minWidth: 250 }}
         />
 
-        <select
-          value={stageFilter}
-          onChange={(e) => setStageFilter(e.target.value)}
-          className={styles.select}
-        >
-          <option value="all">All Stages</option>
-          <option value="1">Pre Seed</option>
-          <option value="2">Seed Stage</option>
-          <option value="3">Early Stage</option>
-          <option value="4">Growth Stage</option>
-          <option value="5">Expansion Stage</option>
-        </select>
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel id="stage-filter-label">Stage</InputLabel>
+          <Select
+            labelId="stage-filter-label"
+            value={stageFilter}
+            onChange={(e) => setStageFilter(e.target.value)}
+            label="Stage"
+          >
+            <MenuItem value="all">All Stages</MenuItem>
+            <MenuItem value="1">Pre Seed</MenuItem>
+            <MenuItem value="2">Seed Stage</MenuItem>
+            <MenuItem value="3">Early Stage</MenuItem>
+            <MenuItem value="4">Growth Stage</MenuItem>
+            <MenuItem value="5">Expansion Stage</MenuItem>
+          </Select>
+        </FormControl>
 
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className={styles.select}
-        >
-          <option value="all">All Status</option>
-          <option value="pending">Pending</option>
-          <option value="submitted">Submitted</option>
-          <option value="overdue">Overdue</option>
-          {/* <option value="approved">Approved</option> */}
-        </select>
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel id="status-filter-label">Status</InputLabel>
+          <Select
+            labelId="status-filter-label"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            label="Status"
+          >
+            <MenuItem value="all">All Status</MenuItem>
+            <MenuItem value="pending">Pending</MenuItem>
+            <MenuItem value="submitted">Submitted</MenuItem>
+            <MenuItem value="overdue">Overdue</MenuItem>
+          </Select>
+        </FormControl>
 
-        <select
-          value={itemsPerPage}
-          onChange={(e) => setItemsPerPage(Number(e.target.value))}
-          className={styles.select}
-        >
-          <option value="5">5 per page</option>
-          <option value="10">10 per page</option>
-          <option value="20">20 per page</option>
-          <option value="50">50 per page</option>
-        </select>
-      </div>
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <InputLabel id="items-per-page-label">Items per page</InputLabel>
+          <Select
+            labelId="items-per-page-label"
+            value={paginationModel.pageSize}
+            onChange={(e) =>
+              setPaginationModel({
+                ...paginationModel,
+                pageSize: Number(e.target.value),
+                page: 0,
+              })
+            }
+            label="Items per page"
+          >
+            <MenuItem value={5}>5 per page</MenuItem>
+            <MenuItem value={10}>10 per page</MenuItem>
+            <MenuItem value={20}>20 per page</MenuItem>
+            <MenuItem value={50}>50 per page</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
 
-      {/* Results info */}
-      {processedData.length > 0 && (
-        <div className={styles.resultsInfo}>
-          Showing {startIndex + 1} to {Math.min(endIndex, totalItems)} of{" "}
-          {totalItems} entries
+      {/* Results Info */}
+      <Box sx={{ mb: 1, color: "text.secondary" }}>
+        Showing {paginationModel.page * paginationModel.pageSize + 1} to{" "}
+        {Math.min(
+          (paginationModel.page + 1) * paginationModel.pageSize,
+          filteredData.length
+        )}{" "}
+        of {filteredData.length} entries
+        {stageFilter !== "all" && (
+          <span>
+            {" "}
+            (Filtered by stage:{" "}
+            {stageFilter === "1"
+              ? "Pre Seed Stage"
+              : stageFilter === "2"
+              ? "Seed Stage"
+              : stageFilter === "3"
+              ? "Early Stage"
+              : stageFilter === "4"
+              ? "Growth Stage"
+              : stageFilter === "5"
+              ? "Expansion Stage"
+              : "All Stages"}
+            )
+          </span>
+        )}
+      </Box>
+
+      {/* Material UI DataGrid */}
+      <StyledPaper>
+        <DataGrid
+          rows={rowsWithId}
+          columns={columns}
+          paginationModel={paginationModel}
+          onPaginationModelChange={setPaginationModel}
+          pageSizeOptions={[5, 10, 20, 50]}
+          checkboxSelection
+          disableRowSelectionOnClick
+          sx={{ border: 0 }}
+          loading={yearLoading}
+          getRowClassName={(params) => {
+            if (!params || !params.row) return "";
+            const statusNormalized = (params.row.status || "").toLowerCase();
+            if (statusNormalized === "overdue") return styles.overdueRow;
+            if (statusNormalized === "pending") return styles.pendingRow;
+            return "";
+          }}
+        />
+      </StyledPaper>
+
+      {/* Preview Modal */}
+      <Modal
+        open={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        aria-labelledby="document-preview-modal"
+        aria-describedby="modal for document preview"
+      >
+        <Box
+          sx={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "80%",
+            height: "80%",
+            bgcolor: "background.paper",
+            boxShadow: 24,
+            p: 4,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
+            <Typography variant="h6">Document Preview</Typography>
+            <IconButton onClick={() => setIsPreviewOpen(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+          <Box sx={{ flexGrow: 1, overflow: "hidden" }}>
+            <iframe
+              src={previewUrl}
+              title="Document Preview"
+              width="100%"
+              height="100%"
+              style={{ border: "none" }}
+            />
+          </Box>
+        </Box>
+      </Modal>
+
+      {filteredData.length === 0 && !yearLoading && (
+        <Box sx={{ textAlign: "center", py: 3, color: "text.secondary" }}>
+          No documents found matching your criteria.
           {stageFilter !== "all" && (
-            <span>
-              {" "}
-              (Filtered by stage: {getStageDisplayName(stageFilter)})
-            </span>
+            <div>Try changing the stage filter or search term.</div>
           )}
-        </div>
-      )}
-
-      {/* Table */}
-      <div className={styles.tableWrapper}>
-        <table className={styles.table}>
-          <thead style={{ fontSize: "15px", fontWeight: "600" }}>
-            <tr>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("incubateesname")}
-              >
-                Company {renderSortIndicator("incubateesname")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("doccatname")}
-              >
-                Document Category {renderSortIndicator("doccatname")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("docsubcatname")}
-              >
-                Document <br />
-                Subcategory {renderSortIndicator("docsubcatname")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("documentname")}
-              >
-                Document Name {renderSortIndicator("documentname")}
-              </th>
-              {Number(roleid) === 1 || Number(roleid) === 3 ? (
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => handleSort("incubateesstagelevel")}
-                >
-                  Stage {renderSortIndicator("incubateesstagelevel")}
-                </th>
-              ) : null}
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("submission_date")}
-              >
-                Submission Date {renderSortIndicator("submission_date")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("due_date")}
-              >
-                Due Date {renderSortIndicator("due_date")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("status")}
-              >
-                Status {renderSortIndicator("status")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("collecteddocobsoletestate")}
-              >
-                Doc State {renderSortIndicator("collecteddocobsoletestate")}
-              </th>
-              <th>{}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {currentItems.map((item, idx) => {
-              const statusNormalized = (item.status || "").toLowerCase();
-
-              return (
-                <tr
-                  key={`${item.incubateesname}-${item.documentname}-${idx}`}
-                  className={
-                    statusNormalized === "overdue"
-                      ? styles.overdueRow
-                      : statusNormalized === "pending"
-                      ? styles.pendingRow
-                      : ""
-                  }
-                >
-                  <td>{item.incubateesname}</td>
-                  <td>{item.doccatname}</td>
-                  <td>{item.docsubcatname}</td>
-                  <td>{item.documentname}</td>
-                  {Number(roleid) === 1 || Number(roleid) === 3 ? (
-                    <td>
-                      <span
-                        className={`${styles.badge} ${styles.stage}`}
-                        style={{ whiteSpace: "pre" }}
-                      >
-                        {item.incubateesstagelevel || "Unknown"}
-                      </span>
-                    </td>
-                  ) : null}
-                  <td>
-                    {item.submission_date
-                      ? formatDate(item.submission_date)
-                      : "Not submitted"}
-                  </td>
-                  <td
-                    className={
-                      statusNormalized === "overdue" ? styles.dueOverdue : ""
-                    }
-                  >
-                    {formatDate(item.due_date)}
-                  </td>
-                  <td>
-                    <span
-                      className={`${styles.badge} ${styles[statusNormalized]}`}
-                    >
-                      {item.status}
-                    </span>
-                  </td>
-                  <td>
-                    {item.collecteddocobsoletestate ? (
-                      <p
-                        style={{
-                          background: "#ff8787",
-                          color: "#c92a2a",
-                          borderRadius: "4px",
-                          padding: "2px 6px",
-                          display: "inline-block",
-                          fontWeight: "600",
-                          fontSize: "12px",
-                        }}
-                      >
-                        {item.collecteddocobsoletestate}
-                      </p>
-                    ) : (
-                      "---"
-                    )}
-                  </td>
-
-                  <td className="text-right">
-                    <div
-                      className="flex gap-2 justify-end"
-                      style={{
-                        display: "flex",
-                        gap: "0.5rem",
-                        justifyContent: "flex-end",
-                      }}
-                    >
-                      {item.filepath ? (
-                        <button
-                          className={styles.buttonPrimary}
-                          onClick={() => handleViewDocument(item.filepath)}
-                        >
-                          View Doc
-                        </button>
-                      ) : (
-                        <button
-                          className={style.buttonPrimary}
-                          style={{
-                            background: "#6b7280",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "0.3rem",
-                            padding: "0.3rem 0.6rem",
-                            fontSize: "0.75rem",
-                            cursor: "not-allowed",
-                            opacity: "0.7",
-                            whiteSpace: "nowrap",
-                            flexShrink: 0,
-                          }}
-                          disabled
-                        >
-                          No File
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        {isPreviewOpen && (
-          <div className={styles.previewModal}>
-            <div className={styles.previewContent}>
-              <button
-                className={styles.closeButton}
-                onClick={() => setIsPreviewOpen(false)}
-              >
-                ✖
-              </button>
-              <iframe
-                src={previewUrl}
-                title="Document Preview"
-                width="100%"
-                height="500px"
-                style={{ border: "none" }}
-              />
-            </div>
-          </div>
-        )}
-
-        {processedData.length === 0 && !yearLoading && (
-          <div className={styles.noData}>
-            No documents found matching your criteria.
-            {stageFilter !== "all" && (
-              <div>Try changing the stage filter or search term.</div>
-            )}
-          </div>
-        )}
-
-        {yearLoading && (
-          <div className={styles.noData}>Loading documents...</div>
-        )}
-      </div>
-
-      {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <div className={styles.pagination}>
-          <button
-            onClick={goToPrevPage}
-            disabled={currentPage === 1}
-            className={`${styles.pageButton} ${
-              currentPage === 1 ? styles.disabled : ""
-            }`}
-          >
-            Previous
-          </button>
-
-          {getPageNumbers().map((page, index) => (
-            <React.Fragment key={index}>
-              {page === "..." ? (
-                <span className={styles.ellipsis}>...</span>
-              ) : (
-                <button
-                  onClick={() => goToPage(page)}
-                  className={`${styles.pageButton} ${
-                    page === currentPage ? styles.active : ""
-                  }`}
-                >
-                  {page}
-                </button>
-              )}
-            </React.Fragment>
-          ))}
-
-          <button
-            onClick={goToNextPage}
-            disabled={currentPage === totalPages}
-            className={`${styles.pageButton} ${
-              currentPage === totalPages ? styles.disabled : ""
-            }`}
-          >
-            Next
-          </button>
-        </div>
+        </Box>
       )}
     </div>
   );

@@ -1,25 +1,194 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useContext, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+
 import {
-  FaTrash,
-  FaEdit,
-  FaUsers,
-  FaTimes,
-  FaPlus,
-  FaSpinner,
-  FaSearch,
-  FaSort,
-  FaSortUp,
-  FaSortDown,
-} from "react-icons/fa";
+  Download,
+  Edit,
+  Trash2,
+  Users,
+  X,
+  Plus,
+  Search,
+  SortAsc,
+  SortDesc,
+} from "lucide-react";
+import * as XLSX from "xlsx";
 import Swal from "sweetalert2";
-import "./UserAssociationTable.css";
+
+// Material UI imports
+import { DataGrid } from "@mui/x-data-grid";
+import Paper from "@mui/material/Paper";
+import {
+  Button,
+  Box,
+  Typography,
+  TextField,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Checkbox,
+  FormControlLabel,
+  IconButton,
+  CircularProgress,
+  Tooltip,
+  Collapse,
+  TableCell,
+  TableRow,
+  TableContainer,
+  Table,
+  TableHead,
+  TableBody,
+} from "@mui/material";
+import { styled } from "@mui/material/styles";
 import { IPAdress } from "../Datafetching/IPAdrees";
+import { KeyboardArrowDown, KeyboardArrowUp } from "@mui/icons-material";
+
+// Styled components for custom styling
+const StyledPaper = styled(Paper)(({ theme }) => ({
+  width: "100%",
+  marginBottom: theme.spacing(2),
+}));
+
+const StyledChip = styled(Chip)(({ theme }) => ({
+  margin: theme.spacing(0.5),
+}));
+
+const LoadingOverlay = styled(Box)(({ theme }) => ({
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: "rgba(255, 255, 255, 0.7)",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  zIndex: 1000,
+}));
+
+// Common date formatting function
+const formatDate = (dateString) => {
+  if (!dateString) return "-";
+
+  try {
+    const formattedDate = dateString.endsWith("Z")
+      ? `${dateString.slice(0, -1)}T00:00:00Z`
+      : dateString;
+
+    return new Date(formattedDate).toLocaleDateString();
+  } catch (error) {
+    console.error("Error parsing date:", error);
+    return dateString;
+  }
+};
+
+// Row component for grouped data
+const GroupedRow = ({ row, isExpanded, onToggle, onDelete, onEdit }) => {
+  return (
+    <>
+      <TableRow sx={{ "& > *": { borderBottom: "unset" } }}>
+        <TableCell>
+          <IconButton
+            aria-label="expand row"
+            size="small"
+            onClick={() => onToggle(row.id)}
+          >
+            {isExpanded ? <KeyboardArrowUp /> : <KeyboardArrowDown />}
+          </IconButton>
+        </TableCell>
+        <TableCell component="th" scope="row">
+          <Box display="flex" alignItems="center" gap={1}>
+            <Typography variant="body2">{row.usersname}</Typography>
+          </Box>
+        </TableCell>
+        <TableCell>{row.userscreatedby}</TableCell>
+        <TableCell>
+          {row.associations.length > 0 ? (
+            <Typography variant="body2">
+              {row.associations.length} compan
+              {row.associations.length === 1 ? "y" : "ies"}
+            </Typography>
+          ) : (
+            <Typography
+              variant="body2"
+              color="textSecondary"
+              fontStyle="italic"
+            >
+              No companies associated
+            </Typography>
+          )}
+        </TableCell>
+        <TableCell>
+          <IconButton size="small" onClick={() => onEdit(row)}>
+            <Edit size={16} />
+          </IconButton>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={5}>
+          <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+            <Box sx={{ margin: 1 }}>
+              <Typography variant="h6" gutterBottom component="div">
+                Companies
+              </Typography>
+              <Table size="small" aria-label="companies">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Company Name</TableCell>
+                    <TableCell>Associated By</TableCell>
+                    <TableCell>Association Date</TableCell>
+                    <TableCell>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {row.associations.map((assoc) => (
+                    <TableRow key={assoc.usrincassnrecid}>
+                      <TableCell component="th" scope="row">
+                        {assoc.incubateesname}
+                      </TableCell>
+                      <TableCell>
+                        {assoc.usrincassncreatedbyname || "N/A"}
+                      </TableCell>
+                      <TableCell>
+                        {formatDate(assoc.usrincassncreatedtime)}
+                      </TableCell>
+                      <TableCell>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => onDelete(assoc.usrincassnrecid)}
+                        >
+                          <Trash2 size={16} />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          </Collapse>
+        </TableCell>
+      </TableRow>
+    </>
+  );
+};
+
 export default function UserAssociationTable() {
+  const navigate = useNavigate();
+
+  // Get IP address from your IPAdress file
+  const IP = IPAdress;
   const userId = sessionStorage.getItem("userid");
   const token = sessionStorage.getItem("token");
   const incUserid = sessionStorage.getItem("incuserid");
-  const IP = IPAdress;
 
+  // States
   const [associations, setAssociations] = useState([]);
   const [incubatees, setIncubatees] = useState([]);
   const [users, setUsers] = useState([]);
@@ -31,13 +200,26 @@ export default function UserAssociationTable() {
   const [showNewAssociationModal, setShowNewAssociationModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState("");
   const [selectedIncubateesForNew, setSelectedIncubateesForNew] = useState([]);
-  const [deletingId, setDeletingId] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [searchQuery, setSearchQuery] = useState(""); // New state for search
+  const [searchTerm, setSearchTerm] = useState("");
+  const [expandedRows, setExpandedRows] = useState([]);
 
-  // Sorting states
-  const [sortColumn, setSortColumn] = useState("usersname");
-  const [sortDirection, setSortDirection] = useState("asc");
+  // Pagination state for Material UI
+  const [paginationModel, setPaginationModel] = useState({
+    page: 0,
+    pageSize: 10,
+  });
+
+  // Sorting state
+  const [sortModel, setSortModel] = useState([
+    {
+      field: "usersname",
+      sort: "asc",
+    },
+  ]);
+
+  // Check if XLSX is available
+  const isXLSXAvailable = !!XLSX;
 
   // Fetch user associations
   const fetchAssociations = () => {
@@ -157,6 +339,7 @@ export default function UserAssociationTable() {
         const userId = item.usrincassnusersrecid;
         if (!userMap[userId]) {
           userMap[userId] = {
+            id: userId,
             usersrecid: userId,
             usersname: item.usersname,
             userscreatedby: item.userscreatedby,
@@ -175,6 +358,7 @@ export default function UserAssociationTable() {
         const userId = item.usersrecid;
         if (!userMap[userId]) {
           userMap[userId] = {
+            id: userId,
             usersrecid: userId,
             usersname: item.usersname,
             userscreatedby: item.userscreatedby || "N/A",
@@ -187,72 +371,23 @@ export default function UserAssociationTable() {
     return Object.values(userMap);
   }, [associations]);
 
-  // Filter normalized data based on search query
+  // Filter data using useMemo for performance
   const filteredData = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return normalizedData;
-    }
+    return normalizedData.filter((user) => {
+      const matchesSearch = (user.usersname || "")
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase());
 
-    const query = searchQuery.toLowerCase();
-    return normalizedData.filter((user) =>
-      user.usersname.toLowerCase().includes(query)
-    );
-  }, [normalizedData, searchQuery]);
-
-  // Sort the filtered data based on the current sort column and direction
-  const sortedData = useMemo(() => {
-    if (!filteredData.length) return [];
-
-    return [...filteredData].sort((a, b) => {
-      let aValue, bValue;
-
-      // Get the values to compare based on the column
-      switch (sortColumn) {
-        case "usersname":
-          aValue = a.usersname || "";
-          bValue = b.usersname || "";
-          break;
-        case "userscreatedby":
-          aValue = a.userscreatedby || "";
-          bValue = b.userscreatedby || "";
-          break;
-        default:
-          return 0;
-      }
-
-      // Compare the values
-      if (typeof aValue === "string") {
-        return sortDirection === "asc"
-          ? aValue.localeCompare(bValue)
-          : bValue.localeCompare(aValue);
-      } else {
-        // For numbers and dates
-        return sortDirection === "asc" ? aValue - bValue : bValue - aValue;
-      }
+      return matchesSearch;
     });
-  }, [filteredData, sortColumn, sortDirection]);
+  }, [normalizedData, searchTerm]);
 
-  // Function to handle sorting
-  const handleSort = (column) => {
-    // If clicking the same column, toggle direction
-    if (column === sortColumn) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      // If clicking a new column, set it and default to ascending
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
-
-  // Function to get the appropriate sort icon for a column
-  const getSortIcon = (column) => {
-    if (sortColumn !== column) {
-      return <FaSort className="sort-icon" />;
-    }
-    return sortDirection === "asc" ? (
-      <FaSortUp className="sort-icon active" />
-    ) : (
-      <FaSortDown className="sort-icon active" />
+  // Handle row expansion
+  const handleToggleRow = (rowId) => {
+    setExpandedRows((prev) =>
+      prev.includes(rowId)
+        ? prev.filter((id) => id !== rowId)
+        : [...prev, rowId]
     );
   };
 
@@ -602,191 +737,327 @@ export default function UserAssociationTable() {
     });
   };
 
-  // Format date for display
-  const formatDate = (dateString) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    return date.toLocaleDateString();
+  // Export to CSV function
+  const exportToCSV = () => {
+    // Create a copy of the data for export
+    const exportData = normalizedData.flatMap((user) => {
+      if (user.associations.length === 0) {
+        return [
+          {
+            "User Name": user.usersname,
+            "Created By": user.userscreatedby,
+            Company: "No companies associated",
+            "Associated By": "N/A",
+            "Association Date": "N/A",
+          },
+        ];
+      } else {
+        return user.associations.map((assoc) => ({
+          "User Name": user.usersname,
+          "Created By": user.userscreatedby,
+          Company: assoc.incubateesname,
+          "Associated By": assoc.usrincassncreatedbyname || "N/A",
+          "Association Date": formatDate(assoc.usrincassncreatedtime),
+        }));
+      }
+    });
+
+    // Convert to CSV
+    const headers = Object.keys(exportData[0] || {});
+    const csvContent = [
+      headers.join(","),
+      ...exportData.map((row) =>
+        headers
+          .map((header) => {
+            // Handle values that might contain commas
+            const value = row[header];
+            return typeof value === "string" && value.includes(",")
+              ? `"${value}"`
+              : value;
+          })
+          .join(",")
+      ),
+    ].join("\n");
+
+    // Create a blob and download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `user_associations_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  // Clear search
-  const clearSearch = () => {
-    setSearchQuery("");
+  // Export to Excel function
+  const exportToExcel = () => {
+    if (!isXLSXAvailable) {
+      console.error("XLSX library not available");
+      alert("Excel export is not available. Please install the xlsx package.");
+      return;
+    }
+
+    try {
+      // Create a copy of the data for export
+      const exportData = normalizedData.flatMap((user) => {
+        if (user.associations.length === 0) {
+          return [
+            {
+              "User Name": user.usersname,
+              "Created By": user.userscreatedby,
+              Company: "No companies associated",
+              "Associated By": "N/A",
+              "Association Date": "N/A",
+            },
+          ];
+        } else {
+          return user.associations.map((assoc) => ({
+            "User Name": user.usersname,
+            "Created By": user.userscreatedby,
+            Company: assoc.incubateesname,
+            "Associated By": assoc.usrincassncreatedbyname || "N/A",
+            "Association Date": formatDate(assoc.usrincassncreatedtime),
+          }));
+        }
+      });
+
+      // Create a workbook
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(exportData);
+
+      // Add the worksheet to the workbook
+      XLSX.utils.book_append_sheet(wb, ws, "User Associations");
+
+      // Generate the Excel file and download
+      XLSX.writeFile(
+        wb,
+        `user_associations_${new Date().toISOString().slice(0, 10)}.xlsx`
+      );
+    } catch (error) {
+      console.error("Error exporting to Excel:", error);
+      alert("Error exporting to Excel. Falling back to CSV export.");
+      exportToCSV();
+    }
   };
+
+  // Pagination
+  const paginatedData = useMemo(() => {
+    const startIndex = paginationModel.page * paginationModel.pageSize;
+    const endIndex = startIndex + paginationModel.pageSize;
+    return filteredData.slice(startIndex, endIndex);
+  }, [filteredData, paginationModel]);
 
   return (
-    <div className="user-association-container">
-      <div className="user-association-header">
-        <h1 className="user-association-title">
-          <FaUsers style={{ marginRight: "8px" }} />
+    <Box sx={{ width: "100%" }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 2,
+        }}
+      >
+        <Typography variant="h5" display="flex" alignItems="center">
+          <Users style={{ marginRight: "8px" }} />
           Operator–Incubatee Associations list
-        </h1>
-        <div className="search-container">
-          <div className="search-input-wrapper">
-            <FaSearch className="search-icon" />
-            <input
-              type="text"
-              placeholder="Search by name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
-            />
-            {searchQuery && (
-              <button className="clear-search-btn" onClick={clearSearch}>
-                <FaTimes size={14} />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+        </Typography>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          {/* <Button
+            variant="contained"
+            startIcon={<Plus size={16} />}
+            onClick={() => setShowNewAssociationModal(true)}
+          >
+            New Association
+          </Button> */}
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
+            onClick={exportToCSV}
+            title="Export as CSV"
+          >
+            Export CSV
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
+            onClick={exportToExcel}
+            title="Export as Excel"
+            disabled={!isXLSXAvailable}
+          >
+            Export Excel
+          </Button>
+        </Box>
+      </Box>
 
-      {error && <div className="error-message">{error}</div>}
+      {error && (
+        <Box
+          p={2}
+          bgcolor="error.main"
+          color="error.contrastText"
+          borderRadius={1}
+          mb={2}
+        >
+          {error}
+        </Box>
+      )}
 
-      {loading ? (
-        <p className="user-association-empty">Loading user associations...</p>
-      ) : (
-        <div className="table-container">
-          <table className="association-table">
-            <thead>
-              <tr>
-                <th
-                  className="sortable-header"
-                  onClick={() => handleSort("usersname")}
-                >
-                  Name {getSortIcon("usersname")}
-                </th>
-                <th
-                  className="sortable-header"
-                  onClick={() => handleSort("userscreatedby")}
-                >
-                  Created By {getSortIcon("userscreatedby")}
-                </th>
-                <th>Companies</th>
-                <th>Associated By</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedData.map((user) => {
-                const hasAssociations = user.associations.length > 0;
-                const rowCount = Math.max(1, user.associations.length);
+      {/* Search Section */}
+      <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
+        <TextField
+          label="Search by name..."
+          variant="outlined"
+          size="small"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          sx={{ minWidth: 250 }}
+          InputProps={{
+            startAdornment: <Search size={16} style={{ marginRight: 8 }} />,
+          }}
+        />
 
-                return (
-                  <React.Fragment key={user.usersrecid}>
-                    {Array.from({ length: rowCount }).map((_, index) => (
-                      <tr
-                        key={`${user.usersrecid}-${index}`}
-                        className="association-row"
-                      >
-                        {index === 0 ? (
-                          <>
-                            <td className="user-name-cell" rowSpan={rowCount}>
-                              <div className="user-info">
-                                <span className="user-name">
-                                  {user.usersname}
-                                </span>
-                                <button
-                                  className="btn-edit"
-                                  onClick={() => startEditing(user)}
-                                  title="Edit associations"
-                                >
-                                  <FaEdit size={16} />
-                                </button>
-                              </div>
-                            </td>
-                            <td className="created-by-cell" rowSpan={rowCount}>
-                              {user.userscreatedby}
-                            </td>
-                          </>
-                        ) : null}
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <InputLabel id="items-per-page-label">Items per page</InputLabel>
+          <Select
+            labelId="items-per-page-label"
+            value={paginationModel.pageSize}
+            onChange={(e) =>
+              setPaginationModel({
+                ...paginationModel,
+                pageSize: Number(e.target.value),
+                page: 0,
+              })
+            }
+            label="Items per page"
+          >
+            <MenuItem value={5}>5 per page</MenuItem>
+            <MenuItem value={10}>10 per page</MenuItem>
+            <MenuItem value={25}>25 per page</MenuItem>
+            <MenuItem value={50}>50 per page</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
 
-                        {hasAssociations ? (
-                          <>
-                            <td className="company-cell">
-                              <div className="company-info">
-                                <span className="company-name">
-                                  {user.associations[index].incubateesname}
-                                </span>
-                                <span className="association-date">
-                                  {formatDate(
-                                    user.associations[index]
-                                      .usrincassncreatedtime
-                                  )}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="associated-by-cell">
-                              {user.associations[index]
-                                .usrincassncreatedbyname || "N/A"}
-                            </td>
-                            <td className="delete-cell">
-                              <button
-                                className="btn-delete"
-                                onClick={() =>
-                                  handleDelete(
-                                    user.associations[index].usrincassnrecid
-                                  )
-                                }
-                                disabled={isDeleting}
-                                title="Remove association"
-                              >
-                                {isDeleting ? (
-                                  <FaSpinner className="spinner" size={14} />
-                                ) : (
-                                  <FaTrash size={14} />
-                                )}
-                              </button>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="no-association-cell" colSpan="3">
-                              <span className="no-association">
-                                No companies associated
-                              </span>
-                            </td>
-                          </>
-                        )}
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* Results Info */}
+      <Box sx={{ mb: 1, color: "text.secondary" }}>
+        Showing {paginationModel.page * paginationModel.pageSize + 1} to{" "}
+        {Math.min(
+          (paginationModel.page + 1) * paginationModel.pageSize,
+          filteredData.length
+        )}{" "}
+        of {filteredData.length} entries
+      </Box>
 
-          {sortedData.length === 0 && (
-            <div className="user-association-empty">
-              {searchQuery
-                ? "No users found matching your search"
-                : "No users found"}
-            </div>
-          )}
-        </div>
+      {/* Table with Grouping */}
+      <StyledPaper>
+        {loading ? (
+          <Box display="flex" justifyContent="center" p={4}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <TableContainer>
+            <Table aria-label="collapsible table">
+              <TableHead>
+                <TableRow>
+                  <TableCell />
+                  <TableCell>Name</TableCell>
+                  <TableCell>Created By</TableCell>
+                  <TableCell>Companies</TableCell>
+                  <TableCell>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {paginatedData.map((row) => (
+                  <GroupedRow
+                    key={row.id}
+                    row={row}
+                    isExpanded={expandedRows.includes(row.id)}
+                    onToggle={handleToggleRow}
+                    onDelete={handleDelete}
+                    onEdit={startEditing}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </StyledPaper>
+
+      {/* Pagination Controls */}
+      <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
+        <Button
+          disabled={paginationModel.page === 0}
+          onClick={() =>
+            setPaginationModel({
+              ...paginationModel,
+              page: paginationModel.page - 1,
+            })
+          }
+        >
+          Previous
+        </Button>
+        <Typography sx={{ mx: 2 }}>
+          Page {paginationModel.page + 1} of{" "}
+          {Math.ceil(filteredData.length / paginationModel.pageSize)}
+        </Typography>
+        <Button
+          disabled={
+            paginationModel.page >=
+            Math.ceil(filteredData.length / paginationModel.pageSize) - 1
+          }
+          onClick={() =>
+            setPaginationModel({
+              ...paginationModel,
+              page: paginationModel.page + 1,
+            })
+          }
+        >
+          Next
+        </Button>
+      </Box>
+
+      {filteredData.length === 0 && !loading && (
+        <Box sx={{ textAlign: "center", py: 3, color: "text.secondary" }}>
+          {searchTerm
+            ? "No users found matching your search"
+            : "No users found"}
+        </Box>
       )}
 
       {/* Edit Modal */}
-      {editingUserId && (
-        <div className="user-association-modal-backdrop">
-          <div className="user-association-modal-content">
-            <div className="user-association-modal-header">
-              <h3>Edit User Associations</h3>
-              <button className="btn-close" onClick={cancelEditing}>
-                <FaTimes size={20} />
-              </button>
-            </div>
-
-            <div className="user-association-modal-body">
-              <h4>Select Incubatees:</h4>
-              <div className="incubatees-checklist">
-                {incubatees.map((incubatee) => (
-                  <div
-                    key={incubatee.incubateesrecid}
-                    className="incubatee-checkbox-item"
-                  >
-                    <input
-                      type="checkbox"
-                      id={`incubatee-${incubatee.incubateesrecid}`}
+      <Dialog
+        open={!!editingUserId}
+        onClose={cancelEditing}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Edit User Associations</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            <Typography variant="h6" gutterBottom>
+              Select Incubatees:
+            </Typography>
+            <Box
+              sx={{
+                maxHeight: 300,
+                overflow: "auto",
+                border: 1,
+                borderColor: "divider",
+                borderRadius: 1,
+                p: 1,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {incubatees.map((incubatee) => (
+                <FormControlLabel
+                  key={incubatee.incubateesrecid}
+                  control={
+                    <Checkbox
                       checked={selectedIncubatees.includes(
                         incubatee.incubateesrecid
                       )}
@@ -795,89 +1066,78 @@ export default function UserAssociationTable() {
                       }
                       disabled={updateLoading}
                     />
-                    <label htmlFor={`incubatee-${incubatee.incubateesrecid}`}>
-                      {incubatee.incubateesname}
-                    </label>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="user-association-modal-footer">
-              <button
-                className="btn-cancel"
-                onClick={cancelEditing}
-                disabled={updateLoading}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-save"
-                onClick={updateAssociations}
-                disabled={updateLoading}
-              >
-                {updateLoading ? (
-                  <>
-                    <FaSpinner className="spinner" size={14} /> Updating...
-                  </>
-                ) : (
-                  "Save Changes"
-                )}
-              </button>
-            </div>
-
-            {updateLoading && (
-              <div className="modal-loading-overlay">
-                <div className="modal-loading-spinner">
-                  <FaSpinner className="spinner" size={24} />
-                  <p>Updating associations...</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+                  }
+                  label={incubatee.incubateesname}
+                />
+              ))}
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={cancelEditing} disabled={updateLoading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={updateAssociations}
+            variant="contained"
+            disabled={updateLoading}
+            startIcon={updateLoading ? <CircularProgress size={16} /> : null}
+          >
+            {updateLoading ? "Updating..." : "Save Changes"}
+          </Button>
+        </DialogActions>
+        {updateLoading && (
+          <LoadingOverlay>
+            <CircularProgress />
+          </LoadingOverlay>
+        )}
+      </Dialog>
 
       {/* New Association Modal */}
-      {showNewAssociationModal && (
-        <div className="user-association-modal-backdrop">
-          <div className="user-association-modal-content">
-            <div className="user-association-modal-header">
-              <h3>Associate New Operator</h3>
-              <button className="btn-close" onClick={cancelNewAssociation}>
-                <FaTimes size={20} />
-              </button>
-            </div>
+      <Dialog
+        open={showNewAssociationModal}
+        onClose={cancelNewAssociation}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Associate New Operator</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            <FormControl fullWidth margin="normal">
+              <InputLabel id="user-select-label">Select User</InputLabel>
+              <Select
+                labelId="user-select-label"
+                value={selectedUser}
+                onChange={handleUserChange}
+                disabled={updateLoading}
+              >
+                <MenuItem value="">-- Select User --</MenuItem>
+                {users.map((user) => (
+                  <MenuItem key={user.usersrecid} value={user.usersrecid}>
+                    {user.usersname}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
 
-            <div className="user-association-modal-body">
-              <div className="form-group">
-                <label htmlFor="user-select">Select User:</label>
-                <select
-                  id="user-select"
-                  className="user-select"
-                  value={selectedUser}
-                  onChange={handleUserChange}
-                  disabled={updateLoading}
-                >
-                  <option value="">-- Select User --</option>
-                  {users.map((user) => (
-                    <option key={user.usersrecid} value={user.usersrecid}>
-                      {user.usersname}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <h4>Select Incubatees:</h4>
-              <div className="incubatees-checklist">
-                {incubatees.map((incubatee) => (
-                  <div
-                    key={incubatee.incubateesrecid}
-                    className="incubatee-checkbox-item"
-                  >
-                    <input
-                      type="checkbox"
-                      id={`new-incubatee-${incubatee.incubateesrecid}`}
+            <Typography variant="h6" gutterBottom>
+              Select Incubatees:
+            </Typography>
+            <Box
+              sx={{
+                maxHeight: 300,
+                overflow: "auto",
+                border: 1,
+                borderColor: "divider",
+                borderRadius: 1,
+                p: 1,
+              }}
+            >
+              {incubatees.map((incubatee) => (
+                <FormControlLabel
+                  key={incubatee.incubateesrecid}
+                  control={
+                    <Checkbox
                       checked={selectedIncubateesForNew.includes(
                         incubatee.incubateesrecid
                       )}
@@ -886,50 +1146,32 @@ export default function UserAssociationTable() {
                       }
                       disabled={updateLoading}
                     />
-                    <label
-                      htmlFor={`new-incubatee-${incubatee.incubateesrecid}`}
-                    >
-                      {incubatee.incubateesname}
-                    </label>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="user-association-modal-footer">
-              <button
-                className="btn-cancel"
-                onClick={cancelNewAssociation}
-                disabled={updateLoading}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-save"
-                onClick={createNewAssociation}
-                disabled={updateLoading}
-              >
-                {updateLoading ? (
-                  <>
-                    <FaSpinner className="spinner" size={14} /> Creating...
-                  </>
-                ) : (
-                  "Create Association"
-                )}
-              </button>
-            </div>
-
-            {updateLoading && (
-              <div className="modal-loading-overlay">
-                <div className="modal-loading-spinner">
-                  <FaSpinner className="spinner" size={24} />
-                  <p>Creating associations...</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+                  }
+                  label={incubatee.incubateesname}
+                />
+              ))}
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={cancelNewAssociation} disabled={updateLoading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={createNewAssociation}
+            variant="contained"
+            disabled={updateLoading}
+            startIcon={updateLoading ? <CircularProgress size={16} /> : null}
+          >
+            {updateLoading ? "Creating..." : "Create Association"}
+          </Button>
+        </DialogActions>
+        {updateLoading && (
+          <LoadingOverlay>
+            <CircularProgress />
+          </LoadingOverlay>
+        )}
+      </Dialog>
+    </Box>
   );
 }

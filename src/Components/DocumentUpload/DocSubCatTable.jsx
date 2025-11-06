@@ -1,18 +1,108 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import Swal from "sweetalert2";
-import "./DocCatTable.css";
-import { FaTrash, FaEdit, FaSort, FaSortUp, FaSortDown } from "react-icons/fa";
-import { FaT } from "react-icons/fa6";
 import { IPAdress } from "../Datafetching/IPAdrees";
+import * as XLSX from "xlsx";
+import { Download } from "lucide-react";
+
+// Material UI imports
+import { DataGrid } from "@mui/x-data-grid";
+import Paper from "@mui/material/Paper";
+import {
+  Button,
+  Box,
+  Typography,
+  TextField,
+  Modal,
+  IconButton,
+  Chip,
+  CircularProgress,
+  Backdrop,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+} from "@mui/material";
+import { styled } from "@mui/material/styles";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import CloseIcon from "@mui/icons-material/Close";
+
+// Styled components
+const StyledPaper = styled(Paper)(({ theme }) => ({
+  height: 500,
+  width: "100%",
+  marginBottom: theme.spacing(2),
+}));
+
+const StyledBackdrop = styled(Backdrop)(({ theme }) => ({
+  zIndex: theme.zIndex.drawer + 1,
+  color: "#fff",
+}));
+
+const ActionButton = styled(IconButton)(({ theme, color }) => ({
+  margin: theme.spacing(0.5),
+  backgroundColor:
+    color === "edit" ? theme.palette.primary.main : theme.palette.error.main,
+  color: "white",
+  "&:hover": {
+    backgroundColor:
+      color === "edit" ? theme.palette.primary.dark : theme.palette.error.dark,
+  },
+}));
+
+// Common date formatting function
+const formatDate = (dateStr) => {
+  if (!dateStr) return "-";
+
+  try {
+    // Handle the timestamp format from the API
+    if (Array.isArray(dateStr)) {
+      dateStr = dateStr.map((num) => num.toString().padStart(2, "0")).join("");
+    } else {
+      dateStr = String(dateStr).replace(/,/g, "");
+    }
+
+    if (dateStr.length < 14) dateStr = dateStr.padEnd(14, "0");
+
+    const year = dateStr.substring(0, 4);
+    const month = dateStr.substring(4, 6);
+    const day = dateStr.substring(6, 8);
+    const hour = dateStr.substring(8, 10);
+    const minute = dateStr.substring(10, 12);
+    const second = dateStr.substring(12, 14);
+
+    const formattedDate = new Date(
+      `${year}-${month}-${day}T${hour}:${minute}:${second}`
+    );
+
+    return formattedDate.toLocaleString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch (error) {
+    console.error("Error formatting date:", error);
+    return dateStr; // Return original if error
+  }
+};
 
 export default function DocSubCatTable() {
   const userId = sessionStorage.getItem("userid");
   const token = sessionStorage.getItem("token");
   const incUserid = sessionStorage.getItem("incuserid");
+  const IP = IPAdress;
 
   const [subcats, setSubcats] = useState([]);
   const [cats, setCats] = useState([]); // categories for dropdown
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editSubCat, setEditSubCat] = useState(null);
   const [formData, setFormData] = useState({
@@ -21,42 +111,17 @@ export default function DocSubCatTable() {
     docsubcatscatrecid: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null);
-  const IP = IPAdress;
-
-  // New loading states for specific operations
   const [isDeleting, setIsDeleting] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
-  // Sorting state
-  const [sortConfig, setSortConfig] = useState({
-    key: null,
-    direction: "ascending",
+  // Pagination state for Material UI
+  const [paginationModel, setPaginationModel] = useState({
+    page: 0,
+    pageSize: 10,
   });
 
-  const formatTimestamp = (timestamp) => {
-    if (!timestamp) return "";
-
-    // ✅ If it's an array, join it into one continuous string
-    if (Array.isArray(timestamp)) {
-      timestamp = timestamp
-        .map((num) => num.toString().padStart(2, "0"))
-        .join("");
-    } else {
-      timestamp = String(timestamp).replace(/,/g, "");
-    }
-
-    if (timestamp.length < 14) timestamp = timestamp.padEnd(14, "0");
-
-    const year = timestamp.substring(0, 4);
-    const month = timestamp.substring(4, 6);
-    const day = timestamp.substring(6, 8);
-    const hour = timestamp.substring(8, 10);
-    const minute = timestamp.substring(10, 12);
-    const second = timestamp.substring(12, 14);
-
-    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
-  };
+  // Check if XLSX is available
+  const isXLSXAvailable = !!XLSX;
 
   // Fetch all subcategories
   const fetchSubCategories = () => {
@@ -107,88 +172,221 @@ export default function DocSubCatTable() {
     refreshData(); // Use refreshData instead of separate calls
   }, []);
 
-  // Sorting functions
-  const requestSort = (key) => {
-    let direction = "ascending";
-    if (sortConfig.key === key && sortConfig.direction === "ascending") {
-      direction = "descending";
-    }
-    setSortConfig({ key, direction });
-  };
+  // Export to CSV function
+  const exportToCSV = () => {
+    // Create a copy of the data for export
+    const exportData = subcats.map((subcat, index) => ({
+      "S.No": index + 1,
+      Category: subcat.doccatname || "N/A",
+      "Subcategory Name": subcat.docsubcatname || "",
+      Description: subcat.docsubcatdescription || "",
+      "Created By": isNaN(subcat.docsubcatcreatedby)
+        ? subcat.docsubcatcreatedby
+        : "Admin",
+      "Created Time": formatDate(subcat.docsubcatcreatedtime),
+      "Modified By": isNaN(subcat.docsubcatmodifiedby)
+        ? subcat.docsubcatmodifiedby
+        : "Admin",
+      "Modified Time": formatDate(subcat.docsubcatmodifiedtime),
+    }));
 
-  const getSortIcon = (columnName) => {
-    if (sortConfig.key !== columnName) {
-      return <FaSort className="sort-icon" />;
-    }
-    return sortConfig.direction === "ascending" ? (
-      <FaSortUp className="sort-icon active" />
-    ) : (
-      <FaSortDown className="sort-icon active" />
+    // Convert to CSV
+    const headers = Object.keys(exportData[0] || {});
+    const csvContent = [
+      headers.join(","),
+      ...exportData.map((row) =>
+        headers
+          .map((header) => {
+            // Handle values that might contain commas
+            const value = row[header];
+            return typeof value === "string" && value.includes(",")
+              ? `"${value}"`
+              : value;
+          })
+          .join(",")
+      ),
+    ].join("\n");
+
+    // Create a blob and download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `document_subcategories_${new Date().toISOString().slice(0, 10)}.csv`
     );
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  // Enhanced sorting function to handle different data types
-  const sortValue = (value, key, originalIndex) => {
-    // Handle null/undefined values
-    if (value === null || value === undefined) {
-      return "";
+  // Export to Excel function
+  const exportToExcel = () => {
+    if (!isXLSXAvailable) {
+      console.error("XLSX library not available");
+      alert("Excel export is not available. Please install the xlsx package.");
+      return;
     }
 
-    // For S.No column, use the original index
-    if (key === "sno") {
-      return originalIndex;
-    }
+    try {
+      // Create a copy of the data for export
+      const exportData = subcats.map((subcat, index) => ({
+        "S.No": index + 1,
+        Category: subcat.doccatname || "N/A",
+        "Subcategory Name": subcat.docsubcatname || "",
+        Description: subcat.docsubcatdescription || "",
+        "Created By": isNaN(subcat.docsubcatcreatedby)
+          ? subcat.docsubcatcreatedby
+          : "Admin",
+        "Created Time": formatDate(subcat.docsubcatcreatedtime),
+        "Modified By": isNaN(subcat.docsubcatmodifiedby)
+          ? subcat.docsubcatmodifiedby
+          : "Admin",
+        "Modified Time": formatDate(subcat.docsubcatmodifiedtime),
+      }));
 
-    // Handle date/time strings
-    if (key === "docsubcatcreatedtime" || key === "docsubcatmodifiedtime") {
-      return value ? new Date(value) : new Date(0);
-    }
+      // Create a workbook
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(exportData);
 
-    // Handle numeric values
-    if (
-      key === "docsubcatcreatedby" ||
-      key === "docsubcatmodifiedby" ||
-      key === "docsubcatrecid" ||
-      key === "docsubcatscatrecid"
-    ) {
-      // Check if it's a numeric ID or a name
-      if (!isNaN(value)) {
-        return parseInt(value, 10);
-      }
-      return value.toString().toLowerCase();
-    }
+      // Add the worksheet to the workbook
+      XLSX.utils.book_append_sheet(wb, ws, "Document Subcategories");
 
-    // Default to string comparison
-    return value.toString().toLowerCase();
+      // Generate the Excel file and download
+      XLSX.writeFile(
+        wb,
+        `document_subcategories_${new Date().toISOString().slice(0, 10)}.xlsx`
+      );
+    } catch (error) {
+      console.error("Error exporting to Excel:", error);
+      alert("Error exporting to Excel. Falling back to CSV export.");
+      exportToCSV();
+    }
   };
 
-  // Apply sorting to the data
-  const sortedSubcats = React.useMemo(() => {
-    let sortableSubcats = [...subcats];
-    if (sortConfig.key !== null) {
-      sortableSubcats.sort((a, b) => {
-        const aValue = sortValue(
-          a[sortConfig.key],
-          sortConfig.key,
-          subcats.indexOf(a)
-        );
-        const bValue = sortValue(
-          b[sortConfig.key],
-          sortConfig.key,
-          subcats.indexOf(b)
-        );
+  // Define columns for DataGrid
+  const columns = [
+    {
+      field: "sno",
+      headerName: "S.No",
+      width: 70,
+      sortable: false,
+      valueGetter: (params) => {
+        if (!params || !params.api) return 0;
+        return params.api.getRowIndexRelativeToVisibleRows(params.row.id) + 1;
+      },
+    },
+    {
+      field: "doccatname",
+      headerName: "Category",
+      width: 180,
+      sortable: true,
+      valueGetter: (params) => {
+        if (!params || !params.row) return "N/A";
+        return params.row.doccatname || "N/A";
+      },
+    },
+    {
+      field: "docsubcatname",
+      headerName: "Subcategory Name",
+      width: 200,
+      sortable: true,
+    },
+    {
+      field: "docsubcatdescription",
+      headerName: "Description",
+      width: 250,
+      sortable: true,
+    },
+    {
+      field: "docsubcatcreatedby",
+      headerName: "Created By",
+      width: 150,
+      sortable: true,
+      valueGetter: (params) => {
+        if (!params || !params.row) return "Admin";
+        return isNaN(params.row.docsubcatcreatedby)
+          ? params.row.docsubcatcreatedby
+          : "Admin";
+      },
+    },
+    {
+      field: "docsubcatcreatedtime",
+      headerName: "Created Time",
+      width: 180,
+      sortable: true,
+      renderCell: (params) => {
+        if (!params || !params.row) return "-";
+        return formatDate(params.row.docsubcatcreatedtime);
+      },
+    },
+    {
+      field: "docsubcatmodifiedby",
+      headerName: "Modified By",
+      width: 150,
+      sortable: true,
+      valueGetter: (params) => {
+        if (!params || !params.row) return "Admin";
+        return isNaN(params.row.docsubcatmodifiedby)
+          ? params.row.docsubcatmodifiedby
+          : "Admin";
+      },
+    },
+    {
+      field: "docsubcatmodifiedtime",
+      headerName: "Modified Time",
+      width: 180,
+      sortable: true,
+      renderCell: (params) => {
+        if (!params || !params.row) return "-";
+        return formatDate(params.row.docsubcatmodifiedtime);
+      },
+    },
+    {
+      field: "actions",
+      headerName: "Actions",
+      width: 150,
+      sortable: false,
+      renderCell: (params) => {
+        if (!params || !params.row) return null;
 
-        if (aValue < bValue) {
-          return sortConfig.direction === "ascending" ? -1 : 1;
-        }
-        if (aValue > bValue) {
-          return sortConfig.direction === "ascending" ? 1 : -1;
-        }
-        return 0;
-      });
-    }
-    return sortableSubcats;
-  }, [subcats, sortConfig]);
+        return (
+          <Box>
+            <ActionButton
+              color="edit"
+              onClick={() => openEditModal(params.row)}
+              disabled={isSaving || isDeleting[params.row.docsubcatrecid]}
+              title="Edit"
+            >
+              <EditIcon fontSize="small" />
+            </ActionButton>
+            <ActionButton
+              color="delete"
+              onClick={() => handleDelete(params.row.docsubcatrecid)}
+              disabled={isSaving || isDeleting[params.row.docsubcatrecid]}
+              title="Delete"
+            >
+              {isDeleting[params.row.docsubcatrecid] ? (
+                <CircularProgress size={18} color="inherit" />
+              ) : (
+                <DeleteIcon fontSize="small" />
+              )}
+            </ActionButton>
+          </Box>
+        );
+      },
+    },
+  ];
+
+  // Add unique ID to each row if not present
+  const rowsWithId = useMemo(() => {
+    return subcats.map((subcat, index) => ({
+      ...subcat,
+      id: subcat.docsubcatrecid || `subcat-${index}`,
+    }));
+  }, [subcats]);
 
   const openAddModal = () => {
     setEditSubCat(null);
@@ -220,7 +418,7 @@ export default function DocSubCatTable() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // ✅ Improved Delete with SweetAlert and loading popup
+  // Delete with SweetAlert and loading popup
   const handleDelete = (subcatId) => {
     Swal.fire({
       title: "Are you sure?",
@@ -283,7 +481,7 @@ export default function DocSubCatTable() {
     });
   };
 
-  // ✅ FIXED: Add/Update with proper URL parameters and loading popup
+  // Add/Update with proper URL parameters and loading popup
   const handleSubmit = (e) => {
     e.preventDefault();
     setIsSaving(true);
@@ -330,7 +528,7 @@ export default function DocSubCatTable() {
     params.append("docsubcatdescription", formData.docsubcatdescription.trim());
     params.append("docsubcatscatrecid", formData.docsubcatscatrecid);
 
-    // ✅ User ID is REQUIRED for both add and update operations
+    // User ID is REQUIRED for both add and update operations
     if (editSubCat) {
       params.append("docsubcatmodifiedby", userId || "32");
     } else {
@@ -417,196 +615,194 @@ export default function DocSubCatTable() {
   };
 
   return (
-    <div className="doccat-container">
-      <div className="doccat-header">
-        <h2 className="doccat-title">📂 Document Subcategories</h2>
-        <button className="btn-add-category" onClick={openAddModal}>
-          + Add Subcategory
-        </button>
-      </div>
+    <Box sx={{ p: 2 }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 2,
+        }}
+      >
+        <Typography variant="h4">📂 Document Subcategories</Typography>
+        <Box sx={{ display: "flex", gap: 2 }}>
+          <Button
+            variant="contained"
+            onClick={openAddModal}
+            disabled={isSaving}
+          >
+            + Add Subcategory
+          </Button>
+          {/* Export Buttons */}
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
+            onClick={exportToCSV}
+            title="Export as CSV"
+          >
+            Export CSV
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
+            onClick={exportToExcel}
+            title="Export as Excel"
+            disabled={!isXLSXAvailable}
+          >
+            Export Excel
+          </Button>
+        </Box>
+      </Box>
 
-      {error && <div className="error-message">{error}</div>}
-
-      {loading ? (
-        <p className="doccat-empty">Loading subcategories...</p>
-      ) : (
-        <div className="doccat-table-wrapper">
-          <table className="doccat-table">
-            <thead>
-              <tr>
-                <th>S.No</th>
-                <th
-                  className="sortable-header"
-                  onClick={() => requestSort("doccatname")}
-                >
-                  Category {getSortIcon("doccatname")}
-                </th>
-                <th
-                  className="sortable-header"
-                  onClick={() => requestSort("docsubcatname")}
-                >
-                  Subcategory Name {getSortIcon("docsubcatname")}
-                </th>
-                <th
-                  className="sortable-header"
-                  onClick={() => requestSort("docsubcatdescription")}
-                >
-                  Description {getSortIcon("docsubcatdescription")}
-                </th>
-                <th
-                  className="sortable-header"
-                  onClick={() => requestSort("docsubcatcreatedby")}
-                >
-                  Created By {getSortIcon("docsubcatcreatedby")}
-                </th>
-                <th
-                  className="sortable-header"
-                  onClick={() => requestSort("docsubcatcreatedtime")}
-                >
-                  Created Time {getSortIcon("docsubcatcreatedtime")}
-                </th>
-                <th
-                  className="sortable-header"
-                  onClick={() => requestSort("docsubcatmodifiedby")}
-                >
-                  Modified By {getSortIcon("docsubcatmodifiedby")}
-                </th>
-                <th
-                  className="sortable-header"
-                  onClick={() => requestSort("docsubcatmodifiedtime")}
-                >
-                  Modified Time {getSortIcon("docsubcatmodifiedtime")}
-                </th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedSubcats.length > 0 ? (
-                sortedSubcats.map((subcat, idx) => (
-                  <tr key={subcat.docsubcatrecid || idx}>
-                    <td>{idx + 1}</td>
-                    <td>{subcat.doccatname || "N/A"}</td>
-                    <td>{subcat.docsubcatname}</td>
-                    <td>{subcat.docsubcatdescription}</td>
-                    <td>
-                      {isNaN(subcat.docsubcatcreatedby)
-                        ? subcat.docsubcatcreatedby
-                        : "Admin"}
-                    </td>
-                    <td>{formatTimestamp(subcat.docsubcatcreatedtime)}</td>
-                    <td>
-                      {isNaN(subcat.docsubcatmodifiedby)
-                        ? subcat.docsubcatmodifiedby
-                        : "Admin"}
-                    </td>
-                    <td>{formatTimestamp(subcat.docsubcatmodifiedtime)}</td>
-                    <td>
-                      <button
-                        className="btn-edit"
-                        onClick={() => openEditModal(subcat)}
-                        disabled={isSaving} // Disable when saving
-                      >
-                        <FaEdit size={18} />
-                      </button>
-                      <button
-                        className="btn-delete"
-                        onClick={() => handleDelete(subcat.docsubcatrecid)}
-                        disabled={isDeleting[subcat.docsubcatrecid] || isSaving} // Disable when deleting or saving
-                      >
-                        <FaTrash size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="10" className="doccat-empty">
-                    No subcategories found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      {error && (
+        <Box
+          sx={{
+            p: 2,
+            mb: 2,
+            bgcolor: "error.light",
+            color: "error.contrastText",
+            borderRadius: 1,
+          }}
+        >
+          {error}
+        </Box>
       )}
 
-      {isModalOpen && (
-        <div className="doccat-modal-backdrop">
-          <div className="doccat-modal-content">
-            <div className="doccat-modal-header">
-              <h3>{editSubCat ? "Edit Subcategory" : "Add Subcategory"}</h3>
-              <button
-                className="btn-close"
-                onClick={() => setIsModalOpen(false)}
-                disabled={isSaving} // Disable when saving
+      {/* Results Info */}
+      <Box sx={{ mb: 1, color: "text.secondary" }}>
+        Showing {paginationModel.page * paginationModel.pageSize + 1} to{" "}
+        {Math.min(
+          (paginationModel.page + 1) * paginationModel.pageSize,
+          subcats.length
+        )}{" "}
+        of {subcats.length} entries
+      </Box>
+
+      {/* Material UI DataGrid */}
+      <StyledPaper>
+        <DataGrid
+          rows={rowsWithId}
+          columns={columns}
+          paginationModel={paginationModel}
+          onPaginationModelChange={setPaginationModel}
+          pageSizeOptions={[5, 10, 25, 50]}
+          disableRowSelectionOnClick
+          sx={{ border: 0 }}
+          loading={loading}
+          autoHeight
+        />
+      </StyledPaper>
+
+      {subcats.length === 0 && !loading && (
+        <Box sx={{ textAlign: "center", py: 3, color: "text.secondary" }}>
+          No subcategories found
+        </Box>
+      )}
+
+      {/* Modal for Add/Edit */}
+      <Dialog
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          {editSubCat ? "Edit Subcategory" : "Add Subcategory"}
+          <IconButton
+            aria-label="close"
+            onClick={() => setIsModalOpen(false)}
+            sx={{
+              position: "absolute",
+              right: 8,
+              top: 8,
+              color: (theme) => theme.palette.grey[500],
+            }}
+            disabled={isSaving}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <form onSubmit={handleSubmit}>
+          <DialogContent>
+            <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
+              <InputLabel id="category-select-label">Category *</InputLabel>
+              <Select
+                labelId="category-select-label"
+                name="docsubcatscatrecid"
+                value={formData.docsubcatscatrecid}
+                onChange={handleChange}
+                required
+                disabled={isSaving}
               >
-                &times;
-              </button>
-            </div>
-            <form className="doccat-form" onSubmit={handleSubmit}>
-              <label>
-                Category *
-                <select
-                  name="docsubcatscatrecid"
-                  value={formData.docsubcatscatrecid}
-                  onChange={handleChange}
-                  required
-                  disabled={isSaving} // Disable when saving
-                >
-                  <option value="">Select Category</option>
-                  {cats.map((cat) => (
-                    <option key={cat.doccatrecid} value={cat.doccatrecid}>
-                      {cat.doccatname}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Subcategory Name *
-                <input
-                  type="text"
-                  name="docsubcatname"
-                  value={formData.docsubcatname}
-                  onChange={handleChange}
-                  required
-                  placeholder="Enter subcategory name"
-                  disabled={isSaving} // Disable when saving
-                />
-              </label>
-              <label>
-                Description *
-                <textarea
-                  name="docsubcatdescription"
-                  value={formData.docsubcatdescription}
-                  onChange={handleChange}
-                  required
-                  placeholder="Enter subcategory description"
-                  rows="3"
-                  disabled={isSaving} // Disable when saving
-                />
-              </label>
-              {error && <div className="modal-error-message">{error}</div>}
-              <div className="doccat-form-actions">
-                <button
-                  type="button"
-                  className="btn-cancel"
-                  onClick={() => setIsModalOpen(false)}
-                  disabled={isSaving} // Disable when saving
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-save"
-                  disabled={isSaving} // Disable when saving
-                >
-                  {editSubCat ? "Update" : "Save"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
+                <MenuItem value="">Select Category</MenuItem>
+                {cats.map((cat) => (
+                  <MenuItem key={cat.doccatrecid} value={cat.doccatrecid}>
+                    {cat.doccatname}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              autoFocus
+              margin="dense"
+              name="docsubcatname"
+              label="Subcategory Name"
+              type="text"
+              fullWidth
+              variant="outlined"
+              value={formData.docsubcatname}
+              onChange={handleChange}
+              required
+              disabled={isSaving}
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              margin="dense"
+              name="docsubcatdescription"
+              label="Description"
+              type="text"
+              fullWidth
+              variant="outlined"
+              multiline
+              rows={3}
+              value={formData.docsubcatdescription}
+              onChange={handleChange}
+              required
+              disabled={isSaving}
+            />
+            {error && <Box sx={{ color: "error.main", mt: 1 }}>{error}</Box>}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setIsModalOpen(false)} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={isSaving}
+              startIcon={isSaving ? <CircularProgress size={20} /> : null}
+            >
+              {editSubCat ? "Update" : "Save"}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      {/* Loading overlay for operations */}
+      <StyledBackdrop open={isSaving}>
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}
+        >
+          <CircularProgress color="inherit" />
+          <Typography sx={{ mt: 2 }}>
+            {editSubCat ? "Updating subcategory..." : "Saving subcategory..."}
+          </Typography>
+        </Box>
+      </StyledBackdrop>
+    </Box>
   );
 }

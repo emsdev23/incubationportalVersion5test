@@ -102,6 +102,7 @@ const Navbar = () => {
       const incUserId = sessionStorage.getItem("incuserid"); // Don't parse this
       const token = sessionStorage.getItem("token");
 
+      console.log(selectedIncubation.incubationshortname);
       if (!userid || !token) {
         Swal.close();
         Swal.fire({
@@ -223,7 +224,7 @@ const Navbar = () => {
                 {/* {selectedIncubation
                   ? `${selectedIncubation.incubationshortname} Portal`
                   : "ITEL Incubation Portal"} */}
-                ITEL Incubation Portal
+                {selectedIncubation?.incubationshortname}
               </h1>
               <p className={styles.subtitle}>Startup Management Dashboard</p>
             </div>

@@ -1,19 +1,61 @@
 import React, { useEffect, useState, useMemo } from "react";
 import Swal from "sweetalert2";
-import {
-  FaTrash,
-  FaEdit,
-  FaPlus,
-  FaSpinner,
-  FaSearch,
-  FaSort,
-  FaSortUp,
-  FaSortDown,
-  FaChevronLeft,
-  FaChevronRight,
-} from "react-icons/fa";
+import { FaTrash, FaEdit, FaPlus, FaSpinner } from "react-icons/fa";
+import { Download } from "lucide-react";
 import "./UserTable.css";
 import { IPAdress } from "../Datafetching/IPAdrees";
+import * as XLSX from "xlsx";
+
+// Material UI imports
+import { DataGrid } from "@mui/x-data-grid";
+import Paper from "@mui/material/Paper";
+import {
+  Button,
+  Box,
+  Typography,
+  TextField,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+  IconButton,
+  Chip,
+  CircularProgress,
+  Backdrop,
+} from "@mui/material";
+import { styled } from "@mui/material/styles";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+
+// Styled components
+const StyledPaper = styled(Paper)(({ theme }) => ({
+  // height: 600,
+  width: "100%",
+  marginBottom: theme.spacing(2),
+}));
+
+const StyledBackdrop = styled(Backdrop)(({ theme }) => ({
+  zIndex: theme.zIndex.drawer + 1,
+  color: "#fff",
+}));
+
+const ActionButton = styled(IconButton)(({ theme, color }) => ({
+  margin: theme.spacing(0.5),
+  backgroundColor:
+    color === "edit" ? theme.palette.primary.main : theme.palette.error.main,
+  color: "white",
+  "&:hover": {
+    backgroundColor:
+      color === "edit" ? theme.palette.primary.dark : theme.palette.error.dark,
+  },
+  "&.disabled": {
+    backgroundColor: theme.palette.grey[300],
+    color: theme.palette.grey[500],
+    cursor: "not-allowed",
+  },
+}));
 
 export default function UserTable() {
   const userId = sessionStorage.getItem("userid");
@@ -32,18 +74,19 @@ export default function UserTable() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIncubation, setSelectedIncubation] = useState(null);
 
-  // Sorting states
-  const [sortColumn, setSortColumn] = useState("sno");
-  const [sortDirection, setSortDirection] = useState("asc");
+  // Pagination state for Material UI
+  const [paginationModel, setPaginationModel] = useState({
+    page: 0,
+    pageSize: 5,
+  });
 
   // Loading states for operations
   const [isAdding, setIsAdding] = useState(false);
   const [isUpdating, setIsUpdating] = useState(null);
   const [isDeleting, setIsDeleting] = useState(null);
 
-  // Pagination states
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(5);
+  // Check if XLSX is available
+  const isXLSXAvailable = !!XLSX;
 
   // Define the role IDs that are allowed to select an incubatee
   const INCUBATEE_ROLE_IDS = [4, 5, 6];
@@ -70,6 +113,31 @@ export default function UserTable() {
     return roleMap[roleId] || "Unknown Role";
   };
 
+  // Function to format date
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "-";
+    try {
+      // Handle ISO format dates
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr; // Return original if invalid date
+
+      // Format to readable format
+      return date
+        .toLocaleString("en-US", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false, // Use 24-hour format
+        })
+        .replace(",", ""); // Remove the comma between date and time
+    } catch (error) {
+      console.error("Error formatting date:", error);
+      return dateStr; // Return original if error
+    }
+  };
+
   // Function to filter users based on search query
   useEffect(() => {
     if (searchQuery.trim() === "") {
@@ -82,142 +150,266 @@ export default function UserTable() {
     }
   }, [searchQuery, users]);
 
-  // Function to handle sorting
-  const handleSort = (column) => {
-    // If clicking the same column, toggle direction
-    if (column === sortColumn) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      // If clicking a new column, set it and default to ascending
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
+  // Function to clear search
+  const clearSearch = () => {
+    setSearchQuery("");
   };
 
-  // Sort the filtered users based on the current sort column and direction
-  const sortedUsers = useMemo(() => {
-    if (!filteredUsers.length) return [];
-
-    return [...filteredUsers].sort((a, b) => {
-      let aValue, bValue;
-
-      // Get the values to compare based on the column
-      switch (sortColumn) {
-        case "sno":
-          aValue = filteredUsers.indexOf(a);
-          bValue = filteredUsers.indexOf(b);
-          break;
-        case "usersname":
-          aValue = a.usersname || "";
-          bValue = b.usersname || "";
-          break;
-        case "usersemail":
-          aValue = a.usersemail || "";
-          bValue = b.usersemail || "";
-          break;
-        case "usersrolesrecid":
-          aValue = getRoleName(a.usersrolesrecid);
-          bValue = getRoleName(b.usersrolesrecid);
-          break;
-        case "userscreatedtime":
-          aValue = a.userscreatedtime
-            ? new Date(a.userscreatedtime)
-            : new Date(0);
-          bValue = b.userscreatedtime
-            ? new Date(b.userscreatedtime)
-            : new Date(0);
-          break;
-        case "usersmodifiedtime":
-          aValue = a.usersmodifiedtime
-            ? new Date(a.usersmodifiedtime)
-            : new Date(0);
-          bValue = b.usersmodifiedtime
-            ? new Date(b.usersmodifiedtime)
-            : new Date(0);
-          break;
-        case "userscreatedby":
-          aValue = a.userscreatedby || "";
-          bValue = b.userscreatedby || "";
-          break;
-        case "usersmodifiedby":
-          aValue = a.usersmodifiedby || "";
-          bValue = b.usersmodifiedby || "";
-          break;
-        default:
-          return 0;
-      }
-
-      // Compare the values
-      if (typeof aValue === "string") {
-        return sortDirection === "asc"
-          ? aValue.localeCompare(bValue)
-          : bValue.localeCompare(aValue);
-      } else {
-        // For numbers and dates
-        return sortDirection === "asc" ? aValue - bValue : bValue - aValue;
-      }
-    });
-  }, [filteredUsers, sortColumn, sortDirection]);
-
-  // Pagination logic
-  const totalPages = Math.ceil(sortedUsers.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentData = sortedUsers.slice(startIndex, endIndex);
-
-  // Reset to page 1 when filters or sorting change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, sortColumn, sortDirection]);
-
-  // Pagination helper
-  const getPageNumbers = () => {
-    const pages = [];
-    const maxVisiblePages = 5;
-
-    if (totalPages <= maxVisiblePages) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      if (currentPage <= 3) {
-        for (let i = 1; i <= 4; i++) pages.push(i);
-        pages.push("...");
-        pages.push(totalPages);
-      } else if (currentPage >= totalPages - 2) {
-        pages.push(1);
-        pages.push("...");
-        for (let i = totalPages - 3; i <= totalPages; i++) pages.push(i);
-      } else {
-        pages.push(1);
-        pages.push("...");
-        for (let i = currentPage - 1; i <= currentPage + 1; i++) pages.push(i);
-        pages.push("...");
-        pages.push(totalPages);
-      }
-    }
-
-    return pages;
+  // Function to handle incubation selection
+  const handleIncubationSelect = (incubation) => {
+    setSelectedIncubation(incubation);
   };
 
-  const handlePageChange = (page) => {
-    if (page >= 1 && page <= totalPages) setCurrentPage(page);
-  };
+  // Export to CSV function
+  const exportToCSV = () => {
+    // Create a copy of the data for export
+    const exportData = filteredUsers.map((user, index) => ({
+      "S.No": index + 1,
+      Name: user.usersname || "",
+      Email: user.usersemail || "",
+      Role: getRoleName(user.usersrolesrecid),
+      "Created Time": formatDate(user.userscreatedtime),
+      "Modified Time": formatDate(user.usersmodifiedtime),
+      "Created By": user.userscreatedby || "",
+      "Modified By": user.usersmodifiedby || "",
+    }));
 
-  const handleItemsPerPageChange = (newItemsPerPage) => {
-    setItemsPerPage(newItemsPerPage);
-    setCurrentPage(1);
-  };
+    // Convert to CSV
+    const headers = Object.keys(exportData[0] || {});
+    const csvContent = [
+      headers.join(","),
+      ...exportData.map((row) =>
+        headers
+          .map((header) => {
+            // Handle values that might contain commas
+            const value = row[header];
+            return typeof value === "string" && value.includes(",")
+              ? `"${value}"`
+              : value;
+          })
+          .join(",")
+      ),
+    ].join("\n");
 
-  // Function to get the appropriate sort icon for a column
-  const getSortIcon = (column) => {
-    if (sortColumn !== column) {
-      return <FaSort className="sort-icon" />;
-    }
-    return sortDirection === "asc" ? (
-      <FaSortUp className="sort-icon active" />
-    ) : (
-      <FaSortDown className="sort-icon active" />
+    // Create a blob and download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `users_${new Date().toISOString().slice(0, 10)}.csv`
     );
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
+
+  // Export to Excel function
+  const exportToExcel = () => {
+    if (!isXLSXAvailable) {
+      console.error("XLSX library not available");
+      alert("Excel export is not available. Please install the xlsx package.");
+      return;
+    }
+
+    try {
+      // Create a copy of the data for export
+      const exportData = filteredUsers.map((user, index) => ({
+        "S.No": index + 1,
+        Name: user.usersname || "",
+        Email: user.usersemail || "",
+        Role: getRoleName(user.usersrolesrecid),
+        "Created Time": formatDate(user.userscreatedtime),
+        "Modified Time": formatDate(user.usersmodifiedtime),
+        "Created By": user.userscreatedby || "",
+        "Modified By": user.usersmodifiedby || "",
+      }));
+
+      // Create a workbook
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(exportData);
+
+      // Add the worksheet to the workbook
+      XLSX.utils.book_append_sheet(wb, ws, "Users");
+
+      // Generate the Excel file and download
+      XLSX.writeFile(wb, `users_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (error) {
+      console.error("Error exporting to Excel:", error);
+      alert("Error exporting to Excel. Falling back to CSV export.");
+      exportToCSV();
+    }
+  };
+
+  // Define columns for DataGrid
+  const columns = [
+    {
+      field: "sno",
+      headerName: "S.No",
+      width: 70,
+      sortable: false,
+      valueGetter: (params) => {
+        if (!params || !params.api) return 0;
+        return params.api.getRowIndexRelativeToVisibleRows(params.row.id) + 1;
+      },
+    },
+    {
+      field: "usersname",
+      headerName: "Name",
+      width: 150,
+      sortable: true,
+    },
+    {
+      field: "usersemail",
+      headerName: "Email",
+      width: 200,
+      sortable: true,
+    },
+    {
+      field: "usersrolesrecid",
+      headerName: "Role Name",
+      width: 180,
+      sortable: true,
+      valueGetter: (params) => {
+        if (!params || !params.row) return "Unknown Role";
+        return getRoleName(params.row.usersrolesrecid);
+      },
+      renderCell: (params) => {
+        if (!params || !params.row)
+          return <Chip label="Unknown Role" size="small" />;
+        return (
+          <Chip
+            label={getRoleName(params.row.usersrolesrecid)}
+            size="small"
+            variant="outlined"
+          />
+        );
+      },
+    },
+    {
+      field: "userscreatedtime",
+      headerName: "Created Time",
+      width: 180,
+      sortable: true,
+      valueGetter: (params) => {
+        // Keep this for sorting purposes
+        if (!params || !params.row) return null;
+        return params.row.userscreatedtime
+          ? new Date(params.row.userscreatedtime)
+          : null;
+      },
+      renderCell: (params) => {
+        // Use this for display
+        if (!params || !params.row) return "-";
+        return formatDate(params.row.userscreatedtime);
+      },
+      sortComparator: (v1, v2) => {
+        // Custom sort comparator for dates
+        const date1 = v1 || new Date(0);
+        const date2 = v2 || new Date(0);
+        return date1.getTime() - date2.getTime();
+      },
+    },
+    {
+      field: "usersmodifiedtime",
+      headerName: "Modified Time",
+      width: 180,
+      sortable: true,
+      valueGetter: (params) => {
+        // Keep this for sorting purposes
+        if (!params || !params.row) return null;
+        return params.row.usersmodifiedtime
+          ? new Date(params.row.usersmodifiedtime)
+          : null;
+      },
+      renderCell: (params) => {
+        // Use this for display
+        if (!params || !params.row) return "-";
+        return formatDate(params.row.usersmodifiedtime);
+      },
+      sortComparator: (v1, v2) => {
+        // Custom sort comparator for dates
+        const date1 = v1 || new Date(0);
+        const date2 = v2 || new Date(0);
+        return date1.getTime() - date2.getTime();
+      },
+    },
+    {
+      field: "userscreatedby",
+      headerName: "Created By",
+      width: 120,
+      sortable: true,
+    },
+    {
+      field: "usersmodifiedby",
+      headerName: "Modified By",
+      width: 120,
+      sortable: true,
+    },
+    {
+      field: "actions",
+      headerName: "Actions",
+      width: 150,
+      sortable: false,
+      renderCell: (params) => {
+        if (!params || !params.row) return null;
+
+        const shouldDisableDelete =
+          params.row.usersrolesrecid === 4 || params.row.usersrolesrecid === 1;
+
+        return (
+          <Box>
+            <ActionButton
+              color="edit"
+              onClick={() => handleEdit(params.row)}
+              disabled={
+                isUpdating === params.row.usersrecid ||
+                isDeleting === params.row.usersrecid
+              }
+              title="Edit"
+            >
+              {isUpdating === params.row.usersrecid ? (
+                <FaSpinner className="spinner" size={18} />
+              ) : (
+                <EditIcon fontSize="small" />
+              )}
+            </ActionButton>
+            <ActionButton
+              color="delete"
+              onClick={() => handleDelete(params.row)}
+              disabled={
+                isDeleting === params.row.usersrecid ||
+                isUpdating === params.row.usersrecid ||
+                shouldDisableDelete
+              }
+              className={shouldDisableDelete ? "disabled" : ""}
+              title={
+                shouldDisableDelete
+                  ? "Cannot delete users with role ID 1 or 4"
+                  : "Delete"
+              }
+            >
+              {isDeleting === params.row.usersrecid ? (
+                <FaSpinner className="spinner" size={18} />
+              ) : (
+                <DeleteIcon fontSize="small" />
+              )}
+            </ActionButton>
+          </Box>
+        );
+      },
+    },
+  ];
+
+  // Add unique ID to each row if not present
+  const rowsWithId = useMemo(() => {
+    return filteredUsers.map((user, index) => ({
+      ...user,
+      id: user.usersrecid || `user-${index}`,
+    }));
+  }, [filteredUsers]);
 
   // Fetch all users
   const fetchUsers = () => {
@@ -240,8 +432,10 @@ export default function UserTable() {
       .then((res) => res.json())
       .then((data) => {
         if (data.statusCode === 200) {
-          setUsers(data.data || []);
-          setFilteredUsers(data.data || []);
+          const userData = data.data || [];
+          console.log("Fetched users:", userData); // Debug log
+          setUsers(userData);
+          setFilteredUsers(userData);
         } else {
           throw new Error(data.message || "Failed to fetch users");
         }
@@ -1138,264 +1332,137 @@ export default function UserTable() {
     });
   };
 
-  // Function to check if delete should be disabled for a user
-  const shouldDisableDelete = (user) => {
-    return user.usersrolesrecid === 4 || user.usersrolesrecid === 1;
-  };
-
-  // Function to clear search
-  const clearSearch = () => {
-    setSearchQuery("");
-  };
-
-  // Function to handle incubation selection
-  const handleIncubationSelect = (incubation) => {
-    setSelectedIncubation(incubation);
-  };
-
   return (
-    <div className="doccat-container">
-      <div className="doccat-header">
-        <h2 className="doccat-title">👤 Users</h2>
-        <div className="header-actions">
-          <div className="search-container">
-            <div className="search-input-wrapper">
-              <FaSearch className="search-icon" />
-              <input
-                type="text"
-                placeholder="Search by name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="search-input"
-              />
-              {searchQuery && (
-                <button className="clear-search-btn" onClick={clearSearch}>
-                  ×
-                </button>
-              )}
-            </div>
-          </div>
-          <button
-            className="btn-add-user"
+    <Box className="doccat-container" sx={{ p: 2 }}>
+      <Box
+        className="doccat-header"
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 2,
+        }}
+      >
+        <Typography variant="h4">👤 Users</Typography>
+        <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+          <TextField
+            placeholder="Search by name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            size="small"
+            sx={{ minWidth: 250 }}
+            InputProps={{
+              startAdornment: <SearchIcon color="action" sx={{ mr: 1 }} />,
+              endAdornment: searchQuery && (
+                <IconButton size="small" onClick={clearSearch}>
+                  <ClearIcon />
+                </IconButton>
+              ),
+            }}
+          />
+          <Button
+            variant="contained"
+            startIcon={
+              isAdding ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : (
+                <FaPlus />
+              )
+            }
             onClick={handleAddUser}
             disabled={isAdding}
           >
-            {isAdding ? (
-              <>
-                <FaSpinner className="spinner" size={16} /> Adding...
-              </>
-            ) : (
-              <>
-                <FaPlus size={16} /> Add User
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-      {error && <div className="error-message">{error}</div>}
-      {loading ? (
-        <p className="doccat-empty">Loading users...</p>
-      ) : (
-        <>
-          <div className="table-info">
-            Showing {startIndex + 1} to {Math.min(endIndex, sortedUsers.length)}{" "}
-            of {sortedUsers.length} entries
-          </div>
-          <div className="doccat-table-wrapper">
-            <table className="doccat-table">
-              <thead>
-                <tr>
-                  <th
-                    className="sortable-header"
-                    onClick={() => handleSort("sno")}
-                  >
-                    S.No {getSortIcon("sno")}
-                  </th>
-                  <th
-                    className="sortable-header"
-                    onClick={() => handleSort("usersname")}
-                  >
-                    Name {getSortIcon("usersname")}
-                  </th>
-                  <th
-                    className="sortable-header"
-                    onClick={() => handleSort("usersemail")}
-                  >
-                    Email {getSortIcon("usersemail")}
-                  </th>
-                  <th
-                    className="sortable-header"
-                    onClick={() => handleSort("usersrolesrecid")}
-                  >
-                    Role Name {getSortIcon("usersrolesrecid")}
-                  </th>
-                  <th
-                    className="sortable-header"
-                    onClick={() => handleSort("userscreatedtime")}
-                  >
-                    Created Time {getSortIcon("userscreatedtime")}
-                  </th>
-                  <th
-                    className="sortable-header"
-                    onClick={() => handleSort("usersmodifiedtime")}
-                  >
-                    Modified Time {getSortIcon("usersmodifiedtime")}
-                  </th>
-                  <th
-                    className="sortable-header"
-                    onClick={() => handleSort("userscreatedby")}
-                  >
-                    Created By {getSortIcon("userscreatedby")}
-                  </th>
-                  <th
-                    className="sortable-header"
-                    onClick={() => handleSort("usersmodifiedby")}
-                  >
-                    Modified By {getSortIcon("usersmodifiedby")}
-                  </th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {currentData.length > 0 ? (
-                  currentData.map((user, idx) => (
-                    <tr key={user.usersrecid || idx}>
-                      <td>{sortedUsers.indexOf(user) + 1}</td>
-                      <td>{user.usersname}</td>
-                      <td>{user.usersemail}</td>
-                      <td>{getRoleName(user.usersrolesrecid)}</td>
-                      <td>{user.userscreatedtime?.replace("T", " ")}</td>
-                      <td>{user.usersmodifiedtime?.replace("T", " ")}</td>
-                      <td>{user.userscreatedby}</td>
-                      <td>{user.usersmodifiedby}</td>
-                      <td>
-                        <button
-                          className="btn-edit"
-                          onClick={() => handleEdit(user)}
-                          disabled={
-                            isUpdating === user.usersrecid ||
-                            isDeleting === user.usersrecid
-                          }
-                        >
-                          {isUpdating === user.usersrecid ? (
-                            <FaSpinner className="spinner" size={18} />
-                          ) : (
-                            <FaEdit size={18} />
-                          )}
-                        </button>
-                        <button
-                          className={`btn-delete ${
-                            shouldDisableDelete(user) ? "disabled" : ""
-                          }`}
-                          onClick={() => handleDelete(user)}
-                          disabled={
-                            isDeleting === user.usersrecid ||
-                            isUpdating === user.usersrecid ||
-                            shouldDisableDelete(user)
-                          }
-                          title={
-                            shouldDisableDelete(user)
-                              ? "Cannot delete users with role ID 1 or 4"
-                              : ""
-                          }
-                        >
-                          {isDeleting === user.usersrecid ? (
-                            <FaSpinner className="spinner" size={18} />
-                          ) : (
-                            <FaTrash size={18} />
-                          )}
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="9" className="doccat-empty">
-                      {searchQuery
-                        ? "No users found matching your search"
-                        : "No users found"}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+            {isAdding ? "Adding..." : "Add User"}
+          </Button>
+          {/* Export Buttons */}
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
+            onClick={exportToCSV}
+            title="Export as CSV"
+          >
+            Export CSV
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
+            onClick={exportToExcel}
+            title="Export as Excel"
+            disabled={!isXLSXAvailable}
+          >
+            Export Excel
+          </Button>
+        </Box>
+      </Box>
 
-          {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="pagination-container">
-              <div className="pagination-info">
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) =>
-                    handleItemsPerPageChange(Number(e.target.value))
-                  }
-                  className="items-per-page-select"
-                >
-                  <option value="5">5 per page</option>
-                  <option value="10">10 per page</option>
-                  <option value="25">25 per page</option>
-                  <option value="50">50 per page</option>
-                </select>
-              </div>
-              <div className="pagination">
-                <button
-                  className={`pagination-btn ${
-                    currentPage === 1 ? "disabled" : ""
-                  }`}
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  disabled={currentPage === 1}
-                >
-                  <FaChevronLeft />
-                </button>
+      {error && (
+        <Box
+          sx={{
+            p: 2,
+            mb: 2,
+            bgcolor: "error.light",
+            color: "error.contrastText",
+            borderRadius: 1,
+          }}
+        >
+          {error}
+        </Box>
+      )}
 
-                {getPageNumbers().map((page, index) => (
-                  <React.Fragment key={index}>
-                    {page === "..." ? (
-                      <span className="pagination-ellipsis">...</span>
-                    ) : (
-                      <button
-                        className={`pagination-btn page-number ${
-                          currentPage === page ? "active" : ""
-                        }`}
-                        onClick={() => handlePageChange(page)}
-                      >
-                        {page}
-                      </button>
-                    )}
-                  </React.Fragment>
-                ))}
+      {/* Results Info */}
+      <Box sx={{ mb: 1, color: "text.secondary" }}>
+        Showing {paginationModel.page * paginationModel.pageSize + 1} to{" "}
+        {Math.min(
+          (paginationModel.page + 1) * paginationModel.pageSize,
+          filteredUsers.length
+        )}{" "}
+        of {filteredUsers.length} entries
+      </Box>
 
-                <button
-                  className={`pagination-btn ${
-                    currentPage === totalPages ? "disabled" : ""
-                  }`}
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                >
-                  <FaChevronRight />
-                </button>
-              </div>
-            </div>
-          )}
-        </>
+      {/* Material UI DataGrid */}
+      <StyledPaper>
+        <DataGrid
+          rows={rowsWithId}
+          columns={columns}
+          paginationModel={paginationModel}
+          onPaginationModelChange={setPaginationModel}
+          pageSizeOptions={[5, 10, 25, 50]}
+          disableRowSelectionOnClick
+          sx={{ border: 0 }}
+          loading={loading}
+          autoHeight
+        />
+      </StyledPaper>
+
+      {filteredUsers.length === 0 && !loading && (
+        <Box sx={{ textAlign: "center", py: 3, color: "text.secondary" }}>
+          {searchQuery
+            ? "No users found matching your search"
+            : "No users found"}
+        </Box>
       )}
 
       {/* Loading overlay for operations */}
-      {(isAdding || isUpdating !== null || isDeleting !== null) && (
-        <div className="loading-overlay">
-          <div className="loading-spinner">
-            <FaSpinner className="spinner" size={40} />
-            <p>
-              {isAdding
-                ? "Adding user..."
-                : isUpdating !== null
-                ? "Updating user..."
-                : "Deleting user..."}
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
+      <StyledBackdrop
+        open={isAdding || isUpdating !== null || isDeleting !== null}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}
+        >
+          <CircularProgress color="inherit" />
+          <Typography sx={{ mt: 2 }}>
+            {isAdding
+              ? "Adding user..."
+              : isUpdating !== null
+              ? "Updating user..."
+              : "Deleting user..."}
+          </Typography>
+        </Box>
+      </StyledBackdrop>
+    </Box>
   );
 }

@@ -4,9 +4,92 @@ import { useNavigate } from "react-router-dom";
 import { DataContext } from "../Components/Datafetching/DataProvider";
 import api from "../Components/Datafetching/api";
 import { Download } from "lucide-react";
-
-// Direct import at the top level
 import * as XLSX from "xlsx";
+
+// Material UI imports
+import { DataGrid } from "@mui/x-data-grid";
+import Paper from "@mui/material/Paper";
+import {
+  Button,
+  Box,
+  Typography,
+  TextField,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+  Chip,
+} from "@mui/material";
+import { styled } from "@mui/material/styles";
+
+// Styled components for custom styling
+const StyledPaper = styled(Paper)(({ theme }) => ({
+  // height: 600,
+  width: "100%",
+  marginBottom: theme.spacing(2),
+}));
+
+const StyledChip = styled(Chip)(({ theme, stage }) => {
+  const getStageColor = (stage) => {
+    switch (stage) {
+      case 1:
+        return { backgroundColor: "#e0e7ff", color: "#4338ca" }; // Pre Seed
+      case 2:
+        return { backgroundColor: "#dbeafe", color: "#1e40af" }; // Seed
+      case 3:
+        return { backgroundColor: "#d1fae5", color: "#065f46" }; // Early
+      case 4:
+        return { backgroundColor: "#fef3c7", color: "#92400e" }; // Growth
+      case 5:
+        return { backgroundColor: "#ede9fe", color: "#5b21b6" }; // Expansion
+      default:
+        return { backgroundColor: "#f3f4f6", color: "#374151" };
+    }
+  };
+
+  return {
+    ...getStageColor(stage),
+    fontWeight: 500,
+    borderRadius: 4,
+  };
+});
+
+// Common date formatting function
+const formatDate = (dateString) => {
+  if (!dateString) return "-";
+
+  try {
+    // Handle the "Z" suffix properly
+    const formattedDate = dateString.endsWith("Z")
+      ? `${dateString.slice(0, -1)}T00:00:00Z`
+      : dateString;
+
+    return new Date(formattedDate).toLocaleDateString();
+  } catch (error) {
+    console.error("Error parsing date:", error);
+    return dateString; // Return the original string as a fallback
+  }
+};
+
+// const formatDate = (dateString) => {
+//   if (!dateString) return "-";
+
+//   try {
+//     // Handle the "Z" suffix properly
+//     const formattedDate = dateString.endsWith("Z")
+//       ? `${dateString.slice(0, -1)}T00:00:00Z`
+//       : dateString;
+
+//     return new Date(formattedDate).toLocaleDateString("en-IN", {
+//       day: "2-digit",
+//       month: "short",
+//       year: "numeric",
+//     });
+//   } catch (error) {
+//     console.error("Error parsing date:", error);
+//     return dateString; // Return the original string as a fallback
+//   }
+// };
 
 export default function CompanyTable({ companyList = [] }) {
   const navigate = useNavigate();
@@ -19,17 +102,16 @@ export default function CompanyTable({ companyList = [] }) {
   const [fieldFilter, setFieldFilter] = useState("all");
   const [fieldOfWorkList, setFieldOfWorkList] = useState([]);
 
-  // Sorting state
-  const [sortColumn, setSortColumn] = useState("");
-  const [sortDirection, setSortDirection] = useState("asc");
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  // Pagination state for Material UI
+  const [paginationModel, setPaginationModel] = useState({
+    page: 0,
+    pageSize: 10,
+  });
 
   // Check if XLSX is available
   const isXLSXAvailable = !!XLSX;
 
-  // ✅ Fetch Field of Work List from API
+  // Fetch Field of Work List from API
   useEffect(() => {
     const fetchFields = async () => {
       try {
@@ -52,63 +134,20 @@ export default function CompanyTable({ companyList = [] }) {
     };
 
     fetchFields();
-  }, []);
+  }, [incuserid]);
 
-  // ✅ Deduplicate companies by recid
-  const uniqueCompanies = Array.from(
-    new Map(
-      (companyList || []).map((item) => [item.incubateesrecid, item])
-    ).values()
-  );
+  // Deduplicate companies by recid
+  const uniqueCompanies = useMemo(() => {
+    return Array.from(
+      new Map(
+        (companyList || []).map((item) => [item.incubateesrecid, item])
+      ).values()
+    );
+  }, [companyList]);
 
-  // Handle sorting
-  const handleSort = (column) => {
-    if (sortColumn === column) {
-      // If clicking the same column, toggle direction
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      // If clicking a different column, set it as the sort column and default to asc
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
-
-  // Sort and filter data using useMemo for performance
-  const processedData = useMemo(() => {
-    // First sort the data
-    let sortedData = [...uniqueCompanies];
-
-    if (sortColumn) {
-      sortedData.sort((a, b) => {
-        let aVal = a[sortColumn];
-        let bVal = b[sortColumn];
-
-        // Handle null/undefined values
-        if (aVal === null || aVal === undefined) aVal = "";
-        if (bVal === null || bVal === undefined) bVal = "";
-
-        // Handle date sorting
-        if (sortColumn.includes("date")) {
-          aVal = new Date(aVal);
-          bVal = new Date(bVal);
-          if (isNaN(aVal)) aVal = new Date(0);
-          if (isNaN(bVal)) bVal = new Date(0);
-        }
-
-        // Compare values
-        let comparison = 0;
-        if (typeof aVal === "string" && typeof bVal === "string") {
-          comparison = aVal.localeCompare(bVal);
-        } else {
-          comparison = aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-        }
-
-        return sortDirection === "asc" ? comparison : -comparison;
-      });
-    }
-
-    // Then filter the data
-    return sortedData.filter((item) => {
+  // Filter data using useMemo for performance
+  const filteredData = useMemo(() => {
+    return uniqueCompanies.filter((item) => {
       const matchesSearch =
         (item.incubateesname || "")
           .toLowerCase()
@@ -130,92 +169,114 @@ export default function CompanyTable({ companyList = [] }) {
 
       return matchesSearch && matchesStage && matchesField;
     });
-  }, [
-    uniqueCompanies,
-    sortColumn,
-    sortDirection,
-    searchTerm,
-    stageFilter,
-    fieldFilter,
-  ]);
+  }, [uniqueCompanies, searchTerm, stageFilter, fieldFilter]);
 
-  // ✅ Pagination logic
-  const totalPages = Math.ceil(processedData.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentData = processedData.slice(startIndex, endIndex);
+  // Define columns for DataGrid with proper null checks
+  const columns = [
+    {
+      field: "incubateesname",
+      headerName: "Company",
+      width: 200,
+      sortable: true,
+    },
+    {
+      field: "incubateesfieldofworkname",
+      headerName: "Field of Work",
+      width: 180,
+      sortable: true,
+    },
+    {
+      field: "incubateesstagelevel",
+      headerName: "Stage",
+      width: 150,
+      sortable: true,
+      renderCell: (params) => {
+        if (!params || !params.row)
+          return <StyledChip label="—" size="small" />;
+        return (
+          <StyledChip
+            label={params.row.incubateesstagelevelname || "—"}
+            size="small"
+            stage={params.value}
+          />
+        );
+      },
+    },
+    {
+      field: "incubationshortname",
+      headerName: "Incubator",
+      width: 150,
+      sortable: true,
+    },
+    {
+      field: "incubateesdateofincorporation",
+      headerName: "Date of Incorporation",
+      width: 180,
+      sortable: true,
+      renderCell: (params) => {
+        if (!params || !params.row) return "-";
+        return formatDate(params.row.incubateesdateofincorporation);
+      },
+    },
+    {
+      field: "incubateesdateofincubation",
+      headerName: "Date of Incubation",
+      width: 180,
+      sortable: true,
+      renderCell: (params) => {
+        if (!params || !params.row) return "-";
+        return formatDate(params.row.incubateesdateofincubation);
+      },
+    },
+    ...(Number(roleid) === 1 || Number(roleid) === 3 || Number(roleid) === 7
+      ? [
+          {
+            field: "actions",
+            headerName: "Actions",
+            width: 150,
+            sortable: false,
+            renderCell: (params) => {
+              if (!params || !params.row) return null;
+              return (
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={() => {
+                    setadminviewData(params.row.usersrecid);
+                    navigate("/startup/Dashboard", {
+                      state: {
+                        usersrecid: params.row.usersrecid,
+                        companyName: params.row.incubateesname,
+                      },
+                    });
+                  }}
+                >
+                  View Details
+                </Button>
+              );
+            },
+          },
+        ]
+      : []),
+  ];
 
-  // Reset to page 1 when filters or sorting change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, stageFilter, fieldFilter, sortColumn, sortDirection]);
-
-  // Pagination helper
-  const getPageNumbers = () => {
-    const pages = [];
-    const maxVisiblePages = 5;
-
-    if (totalPages <= maxVisiblePages) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      if (currentPage <= 3) {
-        for (let i = 1; i <= 4; i++) pages.push(i);
-        pages.push("...");
-        pages.push(totalPages);
-      } else if (currentPage >= totalPages - 2) {
-        pages.push(1);
-        pages.push("...");
-        for (let i = totalPages - 3; i <= totalPages; i++) pages.push(i);
-      } else {
-        pages.push(1);
-        pages.push("...");
-        for (let i = currentPage - 1; i <= currentPage + 1; i++) pages.push(i);
-        pages.push("...");
-        pages.push(totalPages);
-      }
-    }
-
-    return pages;
-  };
-
-  const handlePageChange = (page) => {
-    if (page >= 1 && page <= totalPages) setCurrentPage(page);
-  };
-
-  const handleItemsPerPageChange = (newItemsPerPage) => {
-    setItemsPerPage(newItemsPerPage);
-    setCurrentPage(1);
-  };
-
-  // Helper function to render sort indicator
-  const renderSortIndicator = (column) => {
-    const isActive = sortColumn === column;
-    const isAsc = sortDirection === "asc";
-
-    return (
-      <span
-        className={`${styles.sortIndicator} ${
-          isActive ? styles.activeSort : styles.inactiveSort
-        }`}
-      >
-        {isActive ? (isAsc ? " ▲" : " ▼") : " ↕"}
-      </span>
-    );
-  };
+  // Add unique ID to each row if not present
+  const rowsWithId = useMemo(() => {
+    return filteredData.map((item) => ({
+      ...item,
+      id: item.incubateesrecid || Math.random().toString(36).substr(2, 9), // Fallback ID
+    }));
+  }, [filteredData]);
 
   // Export to CSV function
   const exportToCSV = () => {
     // Create a copy of the data for export
-    const exportData = processedData.map((item) => ({
+    const exportData = filteredData.map((item) => ({
       "Company Name": item.incubateesname || "",
       "Field of Work": item.incubateesfieldofworkname || "",
       Stage: item.incubateesstagelevelname || "",
-      "Date of Incorporation": item.incubateesdateofincorporation
-        ? new Date(item.incubateesdateofincorporation).toLocaleDateString()
-        : "",
-      "Date of Incubation": item.incubateesdateofincubation
-        ? new Date(item.incubateesdateofincubation).toLocaleDateString()
-        : "",
+      "Date of Incorporation": formatDate(item.incubateesdateofincorporation),
+      "Date of Incubation": formatDate(item.incubateesdateofincubation),
     }));
 
     // Convert to CSV
@@ -260,16 +321,12 @@ export default function CompanyTable({ companyList = [] }) {
 
     try {
       // Create a copy of the data for export
-      const exportData = processedData.map((item) => ({
+      const exportData = filteredData.map((item) => ({
         "Company Name": item.incubateesname || "",
         "Field of Work": item.incubateesfieldofworkname || "",
         Stage: item.incubateesstagelevelname || "",
-        "Date of Incorporation": item.incubateesdateofincorporation
-          ? new Date(item.incubateesdateofincorporation).toLocaleDateString()
-          : "",
-        "Date of Incubation": item.incubateesdateofincubation
-          ? new Date(item.incubateesdateofincubation).toLocaleDateString()
-          : "",
+        "Date of Incorporation": formatDate(item.incubateesdateofincorporation),
+        "Date of Incubation": formatDate(item.incubateesdateofincubation),
       }));
 
       // Create a workbook
@@ -294,245 +351,123 @@ export default function CompanyTable({ companyList = [] }) {
   return (
     <div className={styles.card}>
       <div className={styles.cardHeader}>
-        <h2>Incubatees</h2>
-        <div className={styles.exportButtons}>
-          <button
-            className={styles.exportButton}
+        <Typography variant="h5">Incubatees</Typography>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
             onClick={exportToCSV}
             title="Export as CSV"
           >
-            <Download size={16} />
             Export CSV
-          </button>
-          <button
-            className={`${styles.exportButton} ${
-              !isXLSXAvailable ? styles.disabledButton : ""
-            }`}
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
             onClick={exportToExcel}
-            title={
-              isXLSXAvailable ? "Export as Excel" : "Excel export not available"
-            }
+            title="Export as Excel"
             disabled={!isXLSXAvailable}
           >
-            <Download size={16} />
             Export Excel
-          </button>
-        </div>
+          </Button>
+        </Box>
       </div>
 
       {/* Filters Section */}
-      <div className={styles.filters}>
-        <input
-          type="text"
-          placeholder="Search companies or fields..."
+      <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
+        <TextField
+          label="Search companies or fields..."
+          variant="outlined"
+          size="small"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className={styles.input}
+          sx={{ minWidth: 250 }}
         />
 
-        <select
-          value={stageFilter}
-          onChange={(e) => setStageFilter(e.target.value)}
-          className={styles.select}
-        >
-          <option value="all">All Stages</option>
-          <option value="1">Pre Seed</option>
-          <option value="2">Seed Stage</option>
-          <option value="3">Early Stage</option>
-          <option value="4">Growth Stage</option>
-          <option value="5">Expansion Stage</option>
-        </select>
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel id="stage-filter-label">Stage</InputLabel>
+          <Select
+            labelId="stage-filter-label"
+            value={stageFilter}
+            onChange={(e) => setStageFilter(e.target.value)}
+            label="Stage"
+          >
+            <MenuItem value="all">All Stages</MenuItem>
+            <MenuItem value="1">Pre Seed</MenuItem>
+            <MenuItem value="2">Seed Stage</MenuItem>
+            <MenuItem value="3">Early Stage</MenuItem>
+            <MenuItem value="4">Growth Stage</MenuItem>
+            <MenuItem value="5">Expansion Stage</MenuItem>
+          </Select>
+        </FormControl>
 
-        {/* ✅ New Field of Work Filter */}
-        <select
-          value={fieldFilter}
-          onChange={(e) => setFieldFilter(e.target.value)}
-          className={styles.select}
-        >
-          <option value="all">All Fields</option>
-          {fieldOfWorkList.map((field, index) => (
-            <option key={index} value={field.fieldofworkname}>
-              {field.fieldofworkname} ({field.incubatees_count})
-            </option>
-          ))}
-        </select>
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="field-filter-label">Field of Work</InputLabel>
+          <Select
+            labelId="field-filter-label"
+            value={fieldFilter}
+            onChange={(e) => setFieldFilter(e.target.value)}
+            label="Field of Work"
+          >
+            <MenuItem value="all">All Fields</MenuItem>
+            {fieldOfWorkList.map((field, index) => (
+              <MenuItem key={index} value={field.fieldofworkname}>
+                {field.fieldofworkname} ({field.incubatees_count})
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
 
-        <select
-          value={itemsPerPage}
-          onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
-          className={styles.select}
-        >
-          <option value="5">5 per page</option>
-          <option value="10">10 per page</option>
-          <option value="25">25 per page</option>
-          <option value="50">50 per page</option>
-        </select>
-      </div>
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <InputLabel id="items-per-page-label">Items per page</InputLabel>
+          <Select
+            labelId="items-per-page-label"
+            value={paginationModel.pageSize}
+            onChange={(e) =>
+              setPaginationModel({
+                ...paginationModel,
+                pageSize: Number(e.target.value),
+                page: 0,
+              })
+            }
+            label="Items per page"
+          >
+            <MenuItem value={5}>5 per page</MenuItem>
+            <MenuItem value={10}>10 per page</MenuItem>
+            <MenuItem value={25}>25 per page</MenuItem>
+            <MenuItem value={50}>50 per page</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
 
       {/* Results Info */}
-      <div className={styles.resultsInfo}>
-        Showing {startIndex + 1} to {Math.min(endIndex, processedData.length)}{" "}
-        of {processedData.length} entries
-      </div>
+      <Box sx={{ mb: 1, color: "text.secondary" }}>
+        Showing {paginationModel.page * paginationModel.pageSize + 1} to{" "}
+        {Math.min(
+          (paginationModel.page + 1) * paginationModel.pageSize,
+          filteredData.length
+        )}{" "}
+        of {filteredData.length} entries
+      </Box>
 
-      {/* Table */}
-      <div className={styles.tableWrapper}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("incubateesname")}
-              >
-                Company {renderSortIndicator("incubateesname")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("incubateesfieldofworkname")}
-              >
-                Field of Work {renderSortIndicator("incubateesfieldofworkname")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("incubateesstagelevel")}
-              >
-                Stage {renderSortIndicator("incubateesstagelevel")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("incubationshortname")}
-              >
-                Incubator {renderSortIndicator("incubationshortname")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("incubateesdateofincorporation")}
-              >
-                Date of Incorporation{" "}
-                {renderSortIndicator("incubateesdateofincorporation")}
-              </th>
-              <th
-                className={styles.sortableHeader}
-                onClick={() => handleSort("incubateesdateofincubation")}
-              >
-                Date of Incubation{" "}
-                {renderSortIndicator("incubateesdateofincubation")}
-              </th>
-              {(Number(roleid) === 1 || Number(roleid) === 3) && (
-                <th>Actions</th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {currentData.map((item) => (
-              <tr key={item.incubateesrecid}>
-                <td>{item.incubateesname}</td>
-                <td>{item.incubateesfieldofworkname}</td>
-                <td>
-                  <span
-                    className={`${styles.badge} ${
-                      styles[item.incubateesstagelevel]
-                    }`}
-                  >
-                    {item.incubateesstagelevelname || "—"}
-                  </span>
-                </td>
-                <td>{item.incubationshortname}</td>
-                <td>
-                  {item.incubateesdateofincorporation
-                    ? new Date(
-                        item.incubateesdateofincorporation
-                      ).toLocaleDateString()
-                    : "-"}
-                </td>
-                <td>
-                  {item.incubateesdateofincubation
-                    ? new Date(
-                        item.incubateesdateofincubation
-                      ).toLocaleDateString()
-                    : "-"}
-                </td>
+      {/* Material UI DataGrid */}
+      <StyledPaper>
+        <DataGrid
+          rows={rowsWithId}
+          columns={columns}
+          paginationModel={paginationModel}
+          onPaginationModelChange={setPaginationModel}
+          pageSizeOptions={[5, 10, 25, 50]}
+          disableRowSelectionOnClick
+          sx={{ border: 0 }}
+          autoHeight
+        />
+      </StyledPaper>
 
-                {(Number(roleid) === 1 ||
-                  Number(roleid) === 3 ||
-                  Number(roleid) === 7) && (
-                  <td>
-                    <button
-                      className={styles.buttonPrimary}
-                      style={{
-                        background: "#4f46e5",
-                        color: "#fff",
-                        borderRadius: "0.3rem",
-                        padding: "0.4rem 0.8rem",
-                        borderColor: "#4f46e5",
-                        cursor: "pointer",
-                      }}
-                      onClick={() => {
-                        setadminviewData(item.usersrecid);
-                        navigate("/startup/Dashboard", {
-                          state: {
-                            usersrecid: item.usersrecid,
-                            companyName: item.incubateesname,
-                          },
-                        });
-                      }}
-                    >
-                      View Details
-                    </button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {processedData.length === 0 && (
-          <div className={styles.noData}>
-            No companies found matching your criteria.
-          </div>
-        )}
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className={styles.pagination}>
-          <button
-            className={`${styles.paginationBtn} ${
-              currentPage === 1 ? styles.disabled : ""
-            }`}
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1}
-          >
-            Previous
-          </button>
-
-          {getPageNumbers().map((page, index) => (
-            <React.Fragment key={index}>
-              {page === "..." ? (
-                <span className={styles.ellipsis}>...</span>
-              ) : (
-                <button
-                  className={`${styles.paginationBtn} ${styles.pageNumber} ${
-                    currentPage === page ? styles.active : ""
-                  }`}
-                  onClick={() => handlePageChange(page)}
-                >
-                  {page}
-                </button>
-              )}
-            </React.Fragment>
-          ))}
-
-          <button
-            className={`${styles.paginationBtn} ${
-              currentPage === totalPages ? styles.disabled : ""
-            }`}
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage === totalPages}
-          >
-            Next
-          </button>
-        </div>
+      {filteredData.length === 0 && (
+        <Box sx={{ textAlign: "center", py: 3, color: "text.secondary" }}>
+          No companies found matching your criteria.
+        </Box>
       )}
     </div>
   );
