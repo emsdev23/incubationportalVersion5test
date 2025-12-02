@@ -18,12 +18,6 @@ api.interceptors.request.use((config) => {
   }
 
   // Override for specific endpoints
-
-  // if (config.url?.includes("/auth/login")) {
-  //   config.headers["X-Module"] = "Log_in";
-  //   config.headers["X-Action"] = "user Login attempt";
-  // }
-
   if (config.url?.includes("/logout")) {
     config.headers["X-Module"] = "log_out";
     config.headers["X-Action"] = "user Logout attempt";
@@ -91,32 +85,49 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor (handle errors globally)
-// api.interceptors.response.use(
-//   (response) => response,
-//   (error) => {
-//     if (error.response?.status === 401) {
-//       // Unauthorized → Show SweetAlert
-//       Swal.fire({
-//         icon: "error",
-//         title: "Session Expired",
-//         text: error.response?.data?.message || "Please log in again.",
-//         confirmButtonText: "OK",
-//       }).then(() => {
-//         sessionStorage.clear();
-//         window.location.href = "/"; // Redirect only after OK clicked
-//       });
-//     } else if (error.response?.data?.message) {
-//       // Other API errors → show message
-//       Swal.fire({
-//         // icon: "error",
-//         // title: "Error",
-//         text: error.response.data.message,
-//         confirmButtonText: "OK",
-//       });
-//     }
-//     return Promise.reject(error);
-//   }
-// );
+// NEW: Response interceptor to handle authentication errors
+api.interceptors.response.use(
+  (response) => response, // Pass through successful responses
+  (error) => {
+    // Check if the error is due to an invalid JWT signature (401)
+    if (
+      error.response?.status === 401 &&
+      (error.response?.data?.message?.includes("Invalid JWT signature") ||
+        error.response?.data?.message?.includes("Token expired") ||
+        error.response?.data?.message?.includes("Authentication error") ||
+        error.response?.data?.message?.includes("JWT expired"))
+    ) {
+      // Clear user session
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("userid");
+      sessionStorage.removeItem("roleid");
+      sessionStorage.removeItem("incuserid");
+
+      // // Show a notification to the user
+      // Swal.fire({
+      //   icon: "warning",
+      //   title: "Session Expired",
+      //   text: "Your session has expired. Please log in again.",
+      //   confirmButtonText: "OK",
+      //   timer: 3000,
+      //   timerProgressBar: true,
+      // }).then(() => {
+      //   // Redirect to login page
+      //   window.location.href = "/";
+      // });
+
+      // Also redirect immediately in case the user doesn't click the button
+      // setTimeout(() => {
+      //   window.location.href = "/";
+      // }, 3500);
+
+      // Redirect to login page
+      window.location.href = "/";
+    }
+
+    // For other errors, just reject the promise
+    return Promise.reject(error);
+  }
+);
 
 export default api;

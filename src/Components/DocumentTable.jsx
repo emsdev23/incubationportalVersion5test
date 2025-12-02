@@ -477,6 +477,29 @@ export default function DocumentTable() {
         );
       },
     },
+
+    {
+      field: "linkeddoccat",
+      headerName: "Linked Category",
+      width: 200,
+      sortable: true,
+      filterable: true,
+      renderCell: (params) => {
+        if (!params?.row?.linkeddoccat) return <span>-</span>;
+        return params.row.linkeddoccat;
+      },
+    },
+    {
+      field: "period_info",
+      headerName: "Period Info",
+      width: 200,
+      sortable: true,
+      filterable: true,
+      renderCell: (params) => {
+        if (!params?.row?.period_info) return <span>-</span>;
+        return params.row.period_info;
+      },
+    },
     // New columns for sample document
     {
       field: "documenttemplatedocname",

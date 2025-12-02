@@ -58,8 +58,9 @@ export const DataProvider = ({ children }) => {
   };
 
   // State for date range filtering
-  const [fromYear, setFromYear] = useState("2025-11-20");
-  const [toYear, setToYear] = useState("2025-11-24");
+
+  const [fromYear, setFromYear] = useState("2025-04-01");
+  const [toYear, setToYear] = useState("2026-03-01");
   const [dateFilterLoading, setDateFilterLoading] = useState(false);
 
   // Helper function to safely extract data from API response
@@ -90,24 +91,57 @@ export const DataProvider = ({ children }) => {
   };
 
   // NEW: Function to fetch documents by date range
+  // NEW: Function to fetch documents by date range
   const fetchDocumentsByDateRange = async (startDate, endDate) => {
     setDateFilterLoading(true);
     try {
+      // Determine the correct userId to use for the API call
+      let targetUserId;
+      if (Number(roleid) === 1) {
+        // If admin is viewing a specific company, use that company's ID.
+        // Otherwise, use "ALL" for the main admin dashboard.
+        targetUserId = adminViewingStartupId || "ALL";
+      } else {
+        // For non-admin users, use their own ID.
+        targetUserId = userid;
+      }
+
       const response = await api.post("/generic/getcollecteddocsdash", {
-        userId: Number(roleid) === 1 ? "ALL" : userid,
+        userId: targetUserId,
         incUserId: incuserid,
         startDate: startDate ? formatDateForAPI(startDate) : null,
         endDate: endDate ? formatDateForAPI(endDate) : null,
       });
 
       const data = extractData(response, []);
-      setCompanyDoc(data);
-      setstartupcompanyDoc(data);
+
+      // Determine which state to update with the fetched data
+      if (Number(roleid) === 1 && adminViewingStartupId) {
+        // Admin is viewing a specific company, so update the specific company's documents.
+        setstartupcompanyDoc(data);
+      } else {
+        // This is for the main dashboard view (for admins or other roles).
+        setCompanyDoc(data);
+        // Also update startupcompanyDoc for non-admins, as they only see their own data.
+        if (Number(roleid) !== 1) {
+          setstartupcompanyDoc(data);
+        }
+      }
+
       return data;
     } catch (err) {
       console.error("Error fetching documents by date range:", err);
-      setCompanyDoc([]);
-      setstartupcompanyDoc([]);
+
+      // Clear the relevant state on error
+      if (Number(roleid) === 1 && adminViewingStartupId) {
+        setstartupcompanyDoc([]);
+      } else {
+        setCompanyDoc([]);
+        if (Number(roleid) !== 1) {
+          setstartupcompanyDoc([]);
+        }
+      }
+
       alert(
         `Error fetching documents: ${err.message || "Unknown error occurred"}`
       );

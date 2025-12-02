@@ -538,6 +538,7 @@ export default function ReusableDataGrid({
         )}
 
         {/* Filter Popover */}
+        {/* Filter Popover */}
         <Popover
           open={Boolean(filterAnchorEl)}
           anchorEl={filterAnchorEl}
@@ -561,6 +562,12 @@ export default function ReusableDataGrid({
                 onChange={(e) =>
                   handleFilterChange(filterColumn, e.target.value)
                 }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleFilterClose();
+                  }
+                }}
                 variant="outlined"
                 margin="normal"
               />

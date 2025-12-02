@@ -60,9 +60,10 @@ import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
+import UndoIcon from "@mui/icons-material/Undo";
 
 // Import your reusable component
-import ReusableDataGrid from "../Datafetching/ReusableDataGrid"; // Adjust path as needed
+import ReusableDataGrid from "../Datafetching/ReusableDataGrid";
 
 // Styled components
 const StyledBackdrop = styled(Backdrop)(({ theme }) => ({
@@ -91,6 +92,15 @@ const ApplyButton = styled(Button)(({ theme, disabled }) => ({
     backgroundColor: disabled
       ? theme.palette.grey[300]
       : theme.palette.success.dark,
+  },
+}));
+
+const UnmarkButton = styled(Button)(({ theme }) => ({
+  margin: theme.spacing(0.5),
+  backgroundColor: theme.palette.warning.main,
+  color: "white",
+  "&:hover": {
+    backgroundColor: theme.palette.warning.dark,
   },
 }));
 
@@ -140,9 +150,7 @@ const formatDate = (dateStr) => {
     // Handle array format [year, month, day, hour, minute, second]
     if (Array.isArray(dateStr) && dateStr.length >= 6) {
       const [year, month, day, hour, minute, second] = dateStr;
-      // Create a date object (month is 0-indexed in JavaScript Date)
       const date = new Date(year, month - 1, day, hour, minute, second);
-
       return date.toLocaleString("en-US", {
         year: "numeric",
         month: "2-digit",
@@ -165,11 +173,8 @@ const formatDate = (dateStr) => {
       const hour = dateStr.substring(8, 10);
       const minute = dateStr.substring(10, 12);
       const second = dateStr.substring(12, 14);
-
-      // Create a date object in YYYY-MM-DDTHH:MM:SS format
       const isoDateStr = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
       const date = new Date(isoDateStr);
-
       return date.toLocaleString("en-US", {
         year: "numeric",
         month: "2-digit",
@@ -196,7 +201,7 @@ const formatDate = (dateStr) => {
     });
   } catch (error) {
     console.error("Error formatting date:", error);
-    return dateStr; // Return original if error
+    return dateStr;
   }
 };
 
@@ -231,9 +236,9 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     sampleDocBase64: "",
     templateDocName: "",
     templateDocBase64: "",
-    documentapplystatus: 1, // Default to Mandatory (1)
-    documentreferencelink: "", // New field for Reference Link
-    documentapplicability: "", // New field for Note for Applicability
+    documentapplystatus: 1,
+    documentreferencelink: "",
+    documentapplicability: "",
   });
   const [originalFileNames, setOriginalFileNames] = useState({
     sample: "",
@@ -249,19 +254,19 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isApplying, setIsApplying] = useState({});
+  const [isUnmarking, setIsUnmarking] = useState({});
   const [appliedDocuments, setAppliedDocuments] = useState(new Set());
+  const [appliedDocumentDetails, setAppliedDocumentDetails] = useState({});
   const [toast, setToast] = useState({
     open: false,
     message: "",
     severity: "success",
   });
 
-  // New state for additional categories and subcategories
+  // New state for additional categories only (no subcategories)
   const [showAdditionalCategories, setShowAdditionalCategories] =
     useState(false);
   const [selectedAdditionalCategories, setSelectedAdditionalCategories] =
-    useState({});
-  const [selectedAdditionalSubcategories, setSelectedAdditionalSubcategories] =
     useState({});
 
   // Check if XLSX is available
@@ -272,7 +277,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     openAddModal,
   }));
 
-  // HANDLER FUNCTIONS (Must be defined before useMemo)
+  // HANDLER FUNCTIONS
   const fetchDocuments = useCallback(() => {
     const url = `${IP}/itelinc/api/documents/getDocumentsAll?incuserid=${encodeURIComponent(
       incUserid
@@ -305,8 +310,9 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
   }, [IP, incUserid, userId]);
 
   const fetchCategories = useCallback(() => {
-    const url = `${IP}/itelinc/getDoccatAll?incuserid=${encodeURIComponent(
-      incUserid
+    // Using the exact URL provided
+    const url = `http://121.242.232.213:8089/itelinc/getDoccatAll?incuserid=${encodeURIComponent(
+      incUserid || "1"
     )}`;
     fetch(url, {
       method: "GET",
@@ -319,12 +325,14 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
       })
       .catch((err) => {
         console.error("Error fetching categories:", err);
+        setCats([]);
       });
-  }, [IP, incUserid]);
+  }, [incUserid]);
 
   const fetchSubCategories = useCallback(() => {
-    const url = `${IP}/itelinc/getDocsubcatAll?incuserid=${encodeURIComponent(
-      incUserid
+    // Using the exact URL provided
+    const url = `http://121.242.232.213:8089/itelinc/getDocsubcatAll?incuserid=${encodeURIComponent(
+      incUserid || "1"
     )}`;
     fetch(url, {
       method: "GET",
@@ -347,15 +355,14 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
         console.error("Error fetching subcategories:", err);
         setSubcats([]);
       });
-  }, [IP, incUserid]);
+  }, [incUserid]);
 
-  // NEW FUNCTION: Fetch applicability details from the new API
   const fetchApplicabilityDetails = useCallback(() => {
     if (Number(roleid) !== 4) return;
 
     const url = `${IP}/itelinc/resources/generic/getapplicabilitydetails`;
     const requestBody = {
-      userId: incubateeId, // Use incubateeId as userId
+      userId: incubateeId,
       roleId: roleid,
     };
 
@@ -374,22 +381,23 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
       .then((res) => res.json())
       .then((data) => {
         if (data.statusCode === 200 && data.data) {
-          // Handle the response - it might be an object or an array
           let appliedDocs = [];
-
           if (Array.isArray(data.data)) {
-            // If it's an array, use it directly
             appliedDocs = data.data;
           } else if (data.data.incdocapplydocumentid) {
-            // If it's a single object, convert to array
             appliedDocs = [data.data];
           }
 
-          // Extract document IDs from the response
           const appliedIds = new Set(
             appliedDocs.map((doc) => doc.incdocapplydocumentid)
           );
           setAppliedDocuments(appliedIds);
+
+          const docDetails = {};
+          appliedDocs.forEach((doc) => {
+            docDetails[doc.incdocapplydocumentid] = doc.incdocapplyrecid;
+          });
+          setAppliedDocumentDetails(docDetails);
         }
       })
       .catch((err) => {
@@ -397,51 +405,171 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
       });
   }, [IP, incubateeId, roleid, token, userId]);
 
-  const fetchAppliedDocuments = useCallback(() => {
-    if (Number(roleid) !== 4) return;
+  // ENHANCED: Fetch linked documents for a given document
+  const fetchLinkedDocuments = useCallback(
+    async (documentId) => {
+      try {
+        const url = `${IP}/itelinc/getLinkedDocuments`;
+        const params = new URLSearchParams({
+          documentid: documentId,
+        });
 
-    const url = `${IP}/itelinc/getIncubateeAppliedDocuments?incubateeid=${incUserid}`;
-    fetch(url, {
-      method: "GET",
-      mode: "cors",
-      headers: {
-        "Content-Type": "application/json",
-        userid: userId || "1",
-        "X-Module": "Document Management",
-        "X-Action": "fetch Applied Documents",
-      },
-    })
-      .then((res) => res.json())
-      .then((data) => {
+        const response = await fetch(`${url}?${params.toString()}`, {
+          method: "GET",
+          mode: "cors",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            userid: userId || "1",
+            "X-Module": "Document Management",
+            "X-Action": "Fetch Linked Documents",
+          },
+        });
+
+        const data = await response.json();
+        console.log("Linked documents response:", data); // Debug log
+
         if (data.statusCode === 200 && data.data) {
-          const appliedIds = new Set(
-            data.data.map((doc) => doc.incdocapplydocumentid)
-          );
-          setAppliedDocuments(appliedIds);
+          // Ensure we always return an array
+          return Array.isArray(data.data) ? data.data : [data.data];
         }
-      })
-      .catch((err) => {
-        console.error("Error fetching applied documents:", err);
-      });
-  }, [IP, incUserid, userId, roleid]);
+        return [];
+      } catch (error) {
+        console.error("Error fetching linked documents:", error);
+        return [];
+      }
+    },
+    [IP, token, userId]
+  );
+
+  // NEW FUNCTION: Extract category ID from linked document with multiple fallbacks
+  const extractCategoryIdFromLinkedDoc = useCallback((linkedDoc) => {
+    // Try all possible field names in order of preference
+    const possibleFields = [
+      "docsubcatscatrecid",
+      "doccatid",
+      "doccatrecid",
+      "linkeddoccatrecid",
+      "categoryid",
+      "cat_id",
+      "categoryId",
+    ];
+
+    for (const field of possibleFields) {
+      if (linkedDoc[field] !== undefined && linkedDoc[field] !== null) {
+        return String(linkedDoc[field]);
+      }
+    }
+
+    // If no direct field, try nested objects
+    if (linkedDoc.category && linkedDoc.category.id) {
+      return String(linkedDoc.category.id);
+    }
+    if (linkedDoc.doccat && linkedDoc.doccat.doccatrecid) {
+      return String(linkedDoc.doccat.doccatrecid);
+    }
+
+    return null;
+  }, []);
+
+  // NEW FUNCTION: Fetch file as base64
+  const getFileBase64 = useCallback(
+    async (filePath) => {
+      if (!filePath) return null;
+
+      try {
+        // First get the file URL
+        const fileUrlResponse = await fetch(
+          `${IP}/itelinc/resources/generic/getfileurl`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+              userid: userId || "1",
+              "X-Module": "Document Management",
+              "X-Action": "Get File URL",
+            },
+            body: JSON.stringify({
+              userid: userId || "39",
+              url: filePath,
+            }),
+          }
+        );
+
+        if (!fileUrlResponse.ok) {
+          throw new Error(`HTTP error! status: ${fileUrlResponse.status}`);
+        }
+
+        const fileUrlData = await fileUrlResponse.json();
+
+        if (fileUrlData.statusCode !== 200 || !fileUrlData.data) {
+          throw new Error(fileUrlData.message || "Invalid response format");
+        }
+
+        // Now fetch the file and convert to base64
+        const fileResponse = await fetch(fileUrlData.data, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!fileResponse.ok) {
+          // Try without auth
+          const fileResponseNoAuth = await fetch(fileUrlData.data);
+          if (!fileResponseNoAuth.ok) {
+            throw new Error(
+              `Failed to fetch file. Status: ${fileResponseNoAuth.status}`
+            );
+          }
+
+          const blob = await fileResponseNoAuth.blob();
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result;
+              const base64Data = result.split(",")[1];
+              resolve(base64Data);
+            };
+            reader.onerror = (error) => reject(error);
+            reader.readAsDataURL(blob);
+          });
+        } else {
+          const blob = await fileResponse.blob();
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result;
+              const base64Data = result.split(",")[1];
+              resolve(base64Data);
+            };
+            reader.onerror = (error) => reject(error);
+            reader.readAsDataURL(blob);
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching file as base64:", error);
+        throw error;
+      }
+    },
+    [IP, token, userId]
+  );
 
   const refreshData = useCallback(() => {
     fetchDocuments();
     fetchCategories();
     fetchSubCategories();
-    fetchAppliedDocuments();
-    fetchApplicabilityDetails(); // Add the new function call
+    fetchApplicabilityDetails();
   }, [
     fetchDocuments,
     fetchCategories,
     fetchSubCategories,
-    fetchAppliedDocuments,
     fetchApplicabilityDetails,
   ]);
 
   const refreshDropdownData = useCallback(() => {
-    fetchCategories();
-    fetchSubCategories();
+    return Promise.all([fetchCategories(), fetchSubCategories()]);
   }, [fetchCategories, fetchSubCategories]);
 
   const showToast = useCallback((message, severity = "success") => {
@@ -451,7 +579,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
   const validateField = useCallback(
     (name, value) => {
       const errors = { ...fieldErrors };
-
       switch (name) {
         case "documentname":
           if (!value || value.trim() === "") {
@@ -464,7 +591,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             delete errors[name];
           }
           break;
-
         case "documentdescription":
           if (!value || value.trim() === "") {
             errors[name] = "Description is required";
@@ -476,7 +602,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             delete errors[name];
           }
           break;
-
         case "documentcatrecid":
           if (!value) {
             errors[name] = "Please select a category";
@@ -484,7 +609,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             delete errors[name];
           }
           break;
-
         case "documentsubcatrecid":
           if (!value) {
             errors[name] = "Please select a subcategory";
@@ -492,7 +616,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             delete errors[name];
           }
           break;
-
         case "documentperiodicityrecid":
           if (!value) {
             errors[name] = "Please select periodicity";
@@ -500,7 +623,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             delete errors[name];
           }
           break;
-
         case "documentapplystatus":
           if (value === "" || value === null || value === undefined) {
             errors[name] = "Please select document applicability status";
@@ -508,7 +630,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             delete errors[name];
           }
           break;
-
         case "documentreferencelink":
           if (value && !/^https?:\/\/.+/i.test(value)) {
             errors[name] = "Please enter a valid URL (http:// or https://)";
@@ -516,11 +637,9 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             delete errors[name];
           }
           break;
-
         default:
           break;
       }
-
       setFieldErrors(errors);
       return !errors[name];
     },
@@ -543,48 +662,11 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     return isValid;
   }, [formData, validateField]);
 
-  // Validate additional categories selection
+  // Simplified validation for additional categories (no subcategories)
   const validateAdditionalCategories = useCallback(() => {
-    const errors = { ...fieldErrors };
-    let hasValidationError = false;
-
-    Object.keys(selectedAdditionalCategories).forEach((catId) => {
-      if (selectedAdditionalCategories[catId]) {
-        // Find all selected subcategories for this category
-        const selectedSubcatsForCategory = Object.keys(
-          selectedAdditionalSubcategories
-        ).filter(
-          (subcatId) =>
-            selectedAdditionalSubcategories[subcatId] &&
-            subcats.find(
-              (sc) =>
-                String(sc.docsubcatrecid) === String(subcatId) &&
-                String(sc.docsubcatscatrecid) === String(catId)
-            )
-        );
-
-        // If a category is selected but no subcategories are selected for it, it's an error
-        if (selectedSubcatsForCategory.length === 0) {
-          hasValidationError = true;
-          const categoryName =
-            cats.find((c) => String(c.doccatrecid) === catId)?.doccatname ||
-            "Selected category";
-          errors[
-            `additional_cat_${catId}`
-          ] = `Please select at least one subcategory for "${categoryName}"`;
-        }
-      }
-    });
-
-    setFieldErrors(errors);
-    return !hasValidationError;
-  }, [
-    fieldErrors,
-    selectedAdditionalCategories,
-    selectedAdditionalSubcategories,
-    subcats,
-    cats,
-  ]);
+    // No validation needed for additional categories since we're only selecting categories
+    return true;
+  }, []);
 
   const convertFileToBase64 = useCallback((file) => {
     return new Promise((resolve, reject) => {
@@ -847,30 +929,57 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
       sampleDocBase64: "",
       templateDocName: "",
       templateDocBase64: "",
-      documentapplystatus: 1, // Default to Mandatory (1)
-      documentreferencelink: "", // New field
-      documentapplicability: "", // New field
+      documentapplystatus: 1,
+      documentreferencelink: "",
+      documentapplicability: "",
     });
     setFieldErrors({});
     setShowAdditionalCategories(false);
     setSelectedAdditionalCategories({});
-    setSelectedAdditionalSubcategories({});
-    refreshDropdownData();
-    setIsModalOpen(true);
+    refreshDropdownData().then(() => {
+      setIsModalOpen(true);
+    });
   }, [refreshDropdownData]);
 
+  // SIMPLIFIED openEditModal - Removed linked documents and additional categories logic
   const openEditModal = useCallback(
-    (doc) => {
+    async (doc) => {
+      // First fetch categories and subcategories to ensure they're loaded
+      await refreshDropdownData();
+
       setEditDoc(doc);
       setOriginalFileNames({
         sample: doc.documentsampledocname || "",
         template: doc.documenttemplatedocname || "",
       });
+
+      // Find category ID by name from categories data
+      let primaryCategoryId = "";
+      if (doc.doccatname) {
+        const category = cats.find((cat) => cat.doccatname === doc.doccatname);
+        if (category) {
+          primaryCategoryId = category.doccatrecid;
+        }
+      }
+
+      // Find subcategory ID by name from subcategories data
+      let primarySubcategoryId = "";
+      if (doc.docsubcatname && primaryCategoryId) {
+        const subcategory = subcats.find(
+          (sc) =>
+            sc.docsubcatname === doc.docsubcatname &&
+            String(sc.docsubcatscatrecid) === String(primaryCategoryId)
+        );
+        if (subcategory) {
+          primarySubcategoryId = subcategory.docsubcatrecid;
+        }
+      }
+
       setFormData({
         documentname: doc.documentname || "",
         documentdescription: doc.documentdescription || "",
-        documentcatrecid: doc.documentcatrecid || "",
-        documentsubcatrecid: doc.documentsubcatrecid || "",
+        documentcatrecid: primaryCategoryId,
+        documentsubcatrecid: primarySubcategoryId,
         documentperiodicityrecid: doc.documentperiodicityrecid || "",
         documentremarks: doc.documentremarks || "",
         sampleDocName: doc.documentsampledocname || "",
@@ -878,18 +987,15 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
         templateDocName: doc.documenttemplatedocname || "",
         templateDocBase64: "",
         documentapplystatus:
-          doc.documentapplystatus !== undefined ? doc.documentapplystatus : 1, // Default to 1 if not set
-        documentreferencelink: doc.documentreferencelink || "", // New field
-        documentapplicability: doc.documentapplicability || "", // New field
+          doc.documentapplystatus !== undefined ? doc.documentapplystatus : 1,
+        documentreferencelink: doc.documentreferencelink || "",
+        documentapplicability: doc.documentapplicability || "",
       });
       setFieldErrors({});
-      setShowAdditionalCategories(false);
-      setSelectedAdditionalCategories({});
-      setSelectedAdditionalSubcategories({});
-      refreshDropdownData();
+
       setIsModalOpen(true);
     },
-    [refreshDropdownData]
+    [refreshDropdownData, cats, subcats]
   );
 
   const handleChange = useCallback(
@@ -904,9 +1010,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
 
       if (name === "documentcatrecid") {
         setFormData((prev) => ({ ...prev, documentsubcatrecid: "" }));
-        // Reset additional categories when primary category changes
         setSelectedAdditionalCategories({});
-        setSelectedAdditionalSubcategories({});
       }
     },
     [fieldErrors, validateField]
@@ -923,7 +1027,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             showToast(
               `File size ${(file.size / (1024 * 1024)).toFixed(
                 2
-              )}MB exceeds the 10MB limit`,
+              )}MB exceeds 10MB limit`,
               "error"
             );
             e.target.value = "";
@@ -977,7 +1081,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             showToast(
               `File size ${(file.size / (1024 * 1024)).toFixed(
                 2
-              )}MB exceeds the 10MB limit`,
+              )}MB exceeds 10MB limit`,
               "error"
             );
             e.target.value = "";
@@ -1033,58 +1137,14 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     return filtered;
   }, [formData.documentcatrecid, subcats]);
 
-  // New functions for handling multiple categories
-  const handleCategoryCheckboxChange = useCallback(
-    (categoryId, isChecked) => {
-      setSelectedAdditionalCategories((prev) => ({
-        ...prev,
-        [categoryId]: isChecked,
-      }));
+  // Simplified handler for additional categories (no subcategories)
+  const handleCategoryCheckboxChange = useCallback((categoryId, isChecked) => {
+    setSelectedAdditionalCategories((prev) => ({
+      ...prev,
+      [categoryId]: isChecked,
+    }));
+  }, []);
 
-      // If a category is unchecked, uncheck all its subcategories
-      if (!isChecked) {
-        setSelectedAdditionalSubcategories((prev) => {
-          const newState = { ...prev };
-          subcats
-            .filter((sc) => String(sc.docsubcatrecid) === String(categoryId))
-            .forEach((sc) => {
-              delete newState[sc.docsubcatrecid];
-            });
-          return newState;
-        });
-      }
-    },
-    [subcats]
-  );
-
-  const handleSubcategoryCheckboxChange = useCallback(
-    (subcategoryId, categoryId, isChecked) => {
-      setSelectedAdditionalSubcategories((prev) => ({
-        ...prev,
-        [subcategoryId]: isChecked,
-      }));
-
-      // If a subcategory is checked, make sure its parent category is also checked
-      if (isChecked) {
-        setSelectedAdditionalCategories((prev) => ({
-          ...prev,
-          [categoryId]: true,
-        }));
-      }
-    },
-    []
-  );
-
-  const getSubcategoriesForCategory = useCallback(
-    (categoryId) => {
-      return subcats.filter(
-        (sc) => String(sc.docsubcatscatrecid) === String(categoryId)
-      );
-    },
-    [subcats]
-  );
-
-  // Function to add linked document
   const addLinkedDocument = useCallback(
     async (documentId, subcategoryId) => {
       try {
@@ -1096,11 +1156,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
           linkeddoccreatedby: parseInt(userId) || 1,
           linkeddocmodifiedby: parseInt(userId) || 1,
         });
-
-        console.log(
-          "Calling addLinkedDocument API:",
-          `${url}?${params.toString()}`
-        );
 
         const response = await fetch(`${url}?${params.toString()}`, {
           method: "POST",
@@ -1115,7 +1170,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
         });
 
         const data = await response.json();
-        console.log("addLinkedDocument response:", data);
         return data;
       } catch (error) {
         console.error("Error adding linked document:", error);
@@ -1125,13 +1179,10 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     [IP, token, userId]
   );
 
-  // Function to create a single document
   const createDocument = useCallback(
     async (documentData) => {
       try {
         const url = `${IP}/itelinc/api/documents/addDocumentDetails`;
-
-        console.log("Creating document with data:", documentData);
 
         const response = await fetch(url, {
           method: "POST",
@@ -1147,7 +1198,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
         });
 
         const data = await response.json();
-        console.log("Document creation response:", data);
         return data;
       } catch (error) {
         console.error("Error creating document:", error);
@@ -1157,41 +1207,55 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     [IP, token, userId]
   );
 
-  // Function to extract document ID from response
+  // NEW FUNCTION: Update document using the specific endpoint
+  const updateDocument = useCallback(
+    async (documentData) => {
+      try {
+        const url = `http://121.242.232.213:8089/itelinc/api/documents/updateDocumentDetails`;
+
+        const response = await fetch(url, {
+          method: "POST",
+          mode: "cors",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            userid: userId || "1",
+            "X-Module": "Document Management",
+            "X-Action": "Update Document",
+          },
+          body: JSON.stringify(documentData),
+        });
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        console.error("Error updating document:", error);
+        throw error;
+      }
+    },
+    [token, userId]
+  );
+
   const extractDocumentId = useCallback((response) => {
     let documentId = null;
 
-    console.log("Extracting document ID from response:", response);
-
-    // Try different ways to extract document ID
     if (response.data) {
-      // If response.data is a string, try to extract numeric ID
       if (typeof response.data === "string") {
         const idMatch = response.data.match(/(\d+)/);
         if (idMatch) {
           documentId = parseInt(idMatch[1]);
-          console.log("Extracted ID from string:", documentId);
         } else if (!isNaN(response.data)) {
-          // If entire data is a number
           documentId = parseInt(response.data);
-          console.log("Extracted ID from number:", documentId);
         }
       } else if (response.data.documentsrecid) {
-        // If response.data has documentsrecid property
         documentId = response.data.documentsrecid;
-        console.log("Extracted ID from data.documentsrecid:", documentId);
       } else if (response.data.id) {
-        // If response.data has id property
         documentId = response.data.id;
-        console.log("Extracted ID from data.id:", documentId);
       }
     } else if (response.documentsrecid) {
-      // If response has documentsrecid property at root level
       documentId = response.documentsrecid;
-      console.log("Extracted ID from response.documentsrecid:", documentId);
     }
 
-    // Final check - if we still don't have an ID, log the entire response
     if (!documentId) {
       console.error(
         "Could not extract document ID from response. Full response:",
@@ -1202,7 +1266,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     return documentId;
   }, []);
 
-  // Function to get document ID from table after refresh
   const getDocumentIdFromTable = useCallback(
     (docName, docCatId, docSubcatId) => {
       const doc = documents.find(
@@ -1216,9 +1279,8 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     [documents]
   );
 
-  // Function to apply for a document (for incubatees)
   const applyForDocument = useCallback(
-    async (documentId) => {
+    async (documentId, reason) => {
       setIsApplying((prev) => ({ ...prev, [documentId]: true }));
 
       try {
@@ -1227,8 +1289,9 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
           incdocapplyincubateeid: incubateeId,
           incdocapplydocumentid: documentId,
           incdocapplyadminstate: 1,
-          incdocapplycreatedby: userId || "1",
-          incdocapplymodifiedby: userId || "1",
+          incdocapplycreatedby: userId,
+          incdocapplymodifiedby: userId,
+          incdocapplyreason: reason,
         });
 
         const response = await fetch(`${url}?${params.toString()}`, {
@@ -1247,9 +1310,11 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
 
         if (data.statusCode === 200) {
           showToast("Application submitted successfully!", "success");
-          // Add to applied documents set
           setAppliedDocuments((prev) => new Set([...prev, documentId]));
-          // Refresh data to update the UI
+
+          // Fetch updated applicability details to get the incdocapplyrecid
+          await fetchApplicabilityDetails();
+
           fetchDocuments();
         } else {
           throw new Error(data.message || "Failed to apply for document");
@@ -1261,44 +1326,169 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
         setIsApplying((prev) => ({ ...prev, [documentId]: false }));
       }
     },
-    [IP, incUserid, userId, token, showToast, fetchDocuments]
+    [
+      IP,
+      incubateeId,
+      userId,
+      token,
+      showToast,
+      fetchDocuments,
+      fetchApplicabilityDetails,
+    ]
   );
 
   const handleApplyForDocument = useCallback(
     (doc) => {
       Swal.fire({
-        title: "Mark Not Applicable",
-        text: `Are you sure you want to mark Not Applicable "${doc.documentname}"?`,
+        title: "Mark Applicability status for Document",
+        text: `Please provide a reason for marking "${doc.documentname}" as not applicable`,
         icon: "question",
         showCancelButton: true,
-        confirmButtonText: "Yes",
+        confirmButtonText: "Submit",
         cancelButtonText: "Cancel",
         confirmButtonColor: "#28a745",
+        input: "text",
+        inputLabel: "Reason",
+        inputPlaceholder: "Enter reason for marking as not applicable",
+        inputValidator: (value) => {
+          if (!value || value.trim() === "") {
+            return "You need to provide a reason!";
+          }
+        },
       }).then((result) => {
         if (result.isConfirmed) {
-          applyForDocument(doc.documentsrecid);
+          applyForDocument(doc.documentsrecid, result.value);
         }
       });
     },
     [applyForDocument]
   );
 
+  const unmarkDocument = useCallback(
+    async (documentId) => {
+      setIsUnmarking((prev) => ({ ...prev, [documentId]: true }));
+
+      try {
+        const applicabilityRecordId = appliedDocumentDetails[documentId];
+
+        if (!applicabilityRecordId) {
+          throw new Error("Applicability record ID not found");
+        }
+
+        const url = `${IP}/itelinc/deleteIncubateeApplicability`;
+        const params = new URLSearchParams({
+          incdocapplyrecid: applicabilityRecordId,
+          incdocapplymodifiedby: userId,
+        });
+
+        const response = await fetch(`${url}?${params.toString()}`, {
+          method: "POST",
+          mode: "cors",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            userid: userId || "1",
+            "X-Module": "Document Management",
+            "X-Action": "Unmark Document",
+          },
+        });
+
+        const data = await response.json();
+
+        if (data.statusCode === 200) {
+          showToast("Document unmarked successfully!", "success");
+          setAppliedDocuments((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(documentId);
+            return newSet;
+          });
+
+          setAppliedDocumentDetails((prev) => {
+            const newDetails = { ...prev };
+            delete newDetails[documentId];
+            return newDetails;
+          });
+
+          // Fetch updated applicability details to refresh the incdocapplyrecid
+          await fetchApplicabilityDetails();
+
+          fetchDocuments();
+        } else {
+          throw new Error(data.message || "Failed to unmark document");
+        }
+      } catch (error) {
+        console.error("Error unmarking document:", error);
+        showToast(`Failed to unmark: ${error.message}`, "error");
+      } finally {
+        setIsUnmarking((prev) => ({ ...prev, [documentId]: false }));
+      }
+    },
+    [
+      IP,
+      userId,
+      token,
+      showToast,
+      fetchDocuments,
+      fetchApplicabilityDetails,
+      appliedDocumentDetails,
+    ]
+  );
+
+  const handleUnmarkDocument = useCallback(
+    (doc) => {
+      Swal.fire({
+        title: "Unmark Document",
+        text: `Are you sure you want to unmark "${doc.documentname}" as not applicable?`,
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonText: "Yes, unmark it!",
+        cancelButtonText: "Cancel",
+        confirmButtonColor: "#f8bb86",
+      }).then((result) => {
+        if (result.isConfirmed) {
+          unmarkDocument(doc.documentsrecid);
+        }
+      });
+    },
+    [unmarkDocument]
+  );
+
+  // =======================================================================
+  // START: UPDATED handleDelete FUNCTION FOR MULTIPLE DELETION
+  // =======================================================================
   const handleDelete = useCallback(
-    (docId) => {
+    (doc) => {
+      // Extract all document IDs to be deleted from the 'all_documentsrecids' field
+      const documentIdsToDelete = doc.all_documentsrecids
+        .split(",")
+        .map((id) => parseInt(id.trim()));
+
+      const isMultipleDelete = documentIdsToDelete.length > 1;
+      const deleteCount = documentIdsToDelete.length;
+
       Swal.fire({
         title: "Are you sure?",
-        text: "This document will be deleted permanently.",
+        text: isMultipleDelete
+          ? `This will delete ${deleteCount} related documents permanently.`
+          : "This document will be deleted permanently.",
         icon: "warning",
         showCancelButton: true,
         confirmButtonText: "Yes, delete it!",
         cancelButtonText: "Cancel",
       }).then((result) => {
         if (result.isConfirmed) {
-          setIsDeleting((prev) => ({ ...prev, [docId]: true }));
+          // Set loading state for all documents being deleted
+          const newDeletingState = {};
+          documentIdsToDelete.forEach((id) => {
+            newDeletingState[id] = true;
+          });
+          setIsDeleting((prev) => ({ ...prev, ...newDeletingState }));
 
           Swal.fire({
             title: "Deleting...",
-            text: "Please wait while we delete the document",
+            text: isMultipleDelete
+              ? `Please wait while we delete ${deleteCount} documents.`
+              : "Please wait while we delete the document.",
             allowOutsideClick: false,
             allowEscapeKey: false,
             showConfirmButton: false,
@@ -1308,66 +1498,99 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
           });
 
           const url = `${IP}/itelinc/api/documents/deleteDocumentDetails`;
-          const requestBody = {
-            documentsrecid: docId,
-            documentmodifiedby: parseInt(userId) || 39,
-            userid: userId || "1",
-            "X-Module": "Document Management",
-            "X-Action": "Delete Document",
-          };
 
-          fetch(url, {
-            method: "POST",
-            mode: "cors",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestBody),
-          })
-            .then((res) => res.json())
-            .then((data) => {
-              if (data.statusCode === 200) {
+          // Create an array of promises for individual delete calls
+          const deletePromises = documentIdsToDelete.map((documentId) => {
+            const requestBody = {
+              documentsrecid: documentId, // Single document ID for each call
+              documentmodifiedby: parseInt(userId) || 39,
+              userid: userId || "1",
+              "X-Module": "Document Management",
+              "X-Action": "Delete Document",
+            };
+
+            return fetch(url, {
+              method: "POST",
+              mode: "cors",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(requestBody),
+            }).then((res) => res.json());
+          });
+
+          // Execute all delete promises
+          Promise.allSettled(deletePromises)
+            .then((results) => {
+              const successfulDeletes = results.filter(
+                (result) =>
+                  result.status === "fulfilled" &&
+                  result.value.statusCode === 200
+              ).length;
+
+              const failedDeletes = results.length - successfulDeletes;
+
+              if (successfulDeletes === documentIdsToDelete.length) {
+                // All deletions successful
                 Swal.fire(
                   "Deleted!",
-                  "Document deleted successfully!",
+                  isMultipleDelete
+                    ? `${deleteCount} documents deleted successfully!`
+                    : "Document deleted successfully!",
                   "success"
                 );
-                refreshData();
+              } else if (successfulDeletes > 0) {
+                // Some deletions successful
+                Swal.fire(
+                  "Partial Success",
+                  `${successfulDeletes} of ${deleteCount} documents deleted successfully. ${failedDeletes} failed.`,
+                  "warning"
+                );
               } else {
-                throw new Error(data.message || "Failed to delete document");
+                // All deletions failed
+                Swal.fire(
+                  "Error",
+                  "Failed to delete documents. Please try again.",
+                  "error"
+                );
               }
+
+              refreshData();
             })
             .catch((err) => {
-              console.error("Error deleting document:", err);
+              console.error("Error deleting document(s):", err);
               showToast(`Failed to delete: ${err.message}`, "error");
               Swal.close();
             })
             .finally(() => {
-              setIsDeleting((prev) => ({ ...prev, [docId]: false }));
+              // Reset loading state for all affected document IDs
+              const resetDeletingState = {};
+              documentIdsToDelete.forEach((id) => {
+                resetDeletingState[id] = false;
+              });
+              setIsDeleting((prev) => ({ ...prev, ...resetDeletingState }));
             });
         }
       });
     },
     [IP, token, userId, refreshData, showToast]
   );
+  // =======================================================================
+  // END: UPDATED handleDelete FUNCTION
+  // =======================================================================
 
   const handleSubmit = useCallback(
     async (e) => {
       e.preventDefault();
 
-      // Validate main form fields first
       if (!validateForm()) {
         showToast("Please fix errors in form", "error");
         return;
       }
 
-      // Validate additional categories selection
-      if (!validateAdditionalCategories()) {
-        showToast(
-          "Please select at least one subcategory for each selected category",
-          "error"
-        );
+      if (!editDoc && !validateAdditionalCategories()) {
+        showToast("Please select at least one category", "error");
         return;
       }
 
@@ -1400,41 +1623,73 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
           return;
         }
 
-        // Prepare base document data
-        const baseDocumentData = {
-          userid: parseInt(userId) || 39,
-          doccatid: parseInt(formData.documentcatrecid),
-          docsubcatid: subcatId,
-          documentperiodicityrecid: parseInt(formData.documentperiodicityrecid),
-          documentname: formData.documentname.trim(),
-          documentdescription: formData.documentdescription.trim(),
-          documentremarks: formData.documentremarks || "",
-          sampleDocName: formData.sampleDocName || originalFileNames.sample,
-          templateDocName:
-            formData.templateDocName || originalFileNames.template,
-          documentcreatedby: parseInt(userId) || 39,
-          documentmodifiedby: parseInt(userId) || 39,
-          documentapplystatus: parseInt(formData.documentapplystatus), // Add document applicability status
-          documentreferencelink: formData.documentreferencelink, // New field
-          documentapplicability: formData.documentapplicability, // New field
-        };
-
-        if (formData.sampleDocBase64) {
-          baseDocumentData.sampleDocBase64 = formData.sampleDocBase64;
-        }
-        if (formData.templateDocBase64) {
-          baseDocumentData.templateDocBase64 = formData.templateDocBase64;
-        }
-
         if (editDoc) {
-          // For editing, update the original document
-          baseDocumentData.documentsrecid = editDoc.documentsrecid;
-          baseDocumentData.documentcreatedby =
-            typeof editDoc.documentcreatedby === "string"
-              ? 0
-              : editDoc.documentcreatedby;
+          // For editing, use the updateDocument function with the correct endpoint
+          const updateDocumentData = {
+            userid: parseInt(userId) || 39,
+            documentsrecid: editDoc.documentsrecid,
+            doccatid: parseInt(formData.documentcatrecid),
+            docsubcatid: subcatId,
+            documentperiodicityrecid: parseInt(
+              formData.documentperiodicityrecid
+            ),
+            documentname: formData.documentname.trim(),
+            documentdescription: formData.documentdescription.trim(),
+            documentremarks: formData.documentremarks || "",
+            sampleDocName: subcatId
+              ? formData.sampleDocName || originalFileNames.sample
+              : null,
+            templateDocName: subcatId
+              ? formData.templateDocName || originalFileNames.template
+              : null,
+            documentcreatedby:
+              typeof editDoc.documentcreatedby === "string"
+                ? 0
+                : editDoc.documentcreatedby,
+            documentmodifiedby: parseInt(userId) || 39,
+            documentapplystatus: parseInt(formData.documentapplystatus),
+            documentreferencelink: formData.documentreferencelink,
+            documentapplicability: formData.documentapplicability,
+          };
 
-          const response = await createDocument(baseDocumentData);
+          // NEW: Fetch base64 data for existing files if not being replaced
+          try {
+            // If sample document is not being replaced, fetch its base64 data
+            if (
+              subcatId &&
+              !formData.sampleDocBase64 &&
+              editDoc.documentsampledoc
+            ) {
+              updateDocumentData.sampleDocBase64 = await getFileBase64(
+                editDoc.documentsampledoc
+              );
+            } else if (subcatId && formData.sampleDocBase64) {
+              // If a new file was uploaded, use its base64 data
+              updateDocumentData.sampleDocBase64 = formData.sampleDocBase64;
+            }
+
+            // If template document is not being replaced, fetch its base64 data
+            if (
+              subcatId &&
+              !formData.templateDocBase64 &&
+              editDoc.documenttemplatedoc
+            ) {
+              updateDocumentData.templateDocBase64 = await getFileBase64(
+                editDoc.documenttemplatedoc
+              );
+            } else if (subcatId && formData.templateDocBase64) {
+              // If a new file was uploaded, use its base64 data
+              updateDocumentData.templateDocBase64 = formData.templateDocBase64;
+            }
+          } catch (error) {
+            console.error("Error fetching file base64 data:", error);
+            showToast(
+              "Warning: Could not retrieve existing file data. Update may not include all files.",
+              "warning"
+            );
+          }
+
+          const response = await updateDocument(updateDocumentData);
 
           if (response.statusCode === 200) {
             setEditDoc(null);
@@ -1448,111 +1703,85 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             throw new Error(response.message || "Operation failed");
           }
         } else {
-          // Collect all subcategories for which documents need to be created
-          const allSubcategories = [];
+          // For creating new documents
+          const baseDocumentData = {
+            userid: parseInt(userId) || 39,
+            doccatid: parseInt(formData.documentcatrecid),
+            docsubcatid: subcatId,
+            documentperiodicityrecid: parseInt(
+              formData.documentperiodicityrecid
+            ),
+            documentname: formData.documentname.trim(),
+            documentdescription: formData.documentdescription.trim(),
+            documentremarks: formData.documentremarks || "",
+            sampleDocName: subcatId
+              ? formData.sampleDocName || originalFileNames.sample
+              : null,
+            templateDocName: subcatId
+              ? formData.templateDocName || originalFileNames.template
+              : null,
+            documentcreatedby: parseInt(userId) || 39,
+            documentmodifiedby: parseInt(userId) || 39,
+            documentapplystatus: parseInt(formData.documentapplystatus),
+            documentreferencelink: formData.documentreferencelink,
+            documentapplicability: formData.documentapplicability,
+          };
 
-          // Add primary subcategory
-          allSubcategories.push({
+          if (subcatId && formData.sampleDocBase64) {
+            baseDocumentData.sampleDocBase64 = formData.sampleDocBase64;
+          }
+          if (subcatId && formData.templateDocBase64) {
+            baseDocumentData.templateDocBase64 = formData.templateDocBase64;
+          }
+
+          const allCategories = [];
+
+          // Add primary category
+          allCategories.push({
             catId: parseInt(formData.documentcatrecid),
             subcatId: subcatId,
           });
 
-          // Debug: Log selected categories and subcategories
-          console.log(
-            "Selected additional categories:",
-            selectedAdditionalCategories
-          );
-          console.log(
-            "Selected additional subcategories:",
-            selectedAdditionalSubcategories
-          );
-
-          // Collect all selected subcategories from additional categories
+          // Add additional categories with null subcategory
           Object.keys(selectedAdditionalCategories).forEach((catId) => {
-            if (selectedAdditionalCategories[catId]) {
-              // Find all selected subcategories for this category
-              const selectedSubcats = Object.keys(
-                selectedAdditionalSubcategories
-              ).filter(
-                (subcatId) =>
-                  selectedAdditionalSubcategories[subcatId] &&
-                  subcats.find(
-                    (sc) =>
-                      String(sc.docsubcatrecid) === String(subcatId) &&
-                      String(sc.docsubcatscatrecid) === String(catId)
-                  )
-              );
-
-              // If no specific subcategories selected, use first subcategory of this category
-              if (selectedSubcats.length === 0) {
-                const firstSubcat = subcats.find(
-                  (sc) => String(sc.docsubcatscatrecid) === String(catId)
-                );
-                if (firstSubcat) {
-                  allSubcategories.push({
-                    catId: parseInt(catId),
-                    subcatId: firstSubcat.docsubcatrecid,
-                  });
-                  console.log(
-                    `Added first subcategory for category ${catId}:`,
-                    firstSubcat.docsubcatrecid
-                  );
-                }
-              } else {
-                // Add each selected subcategory
-                selectedSubcats.forEach((subcatId) => {
-                  // Skip if this is the same as the primary subcategory
-                  if (
-                    String(catId) === String(formData.documentcatrecid) &&
-                    String(subcatId) === String(formData.documentsubcatrecid)
-                  ) {
-                    console.log(`Skipping primary subcategory: ${subcatId}`);
-                    return;
-                  }
-
-                  allSubcategories.push({
-                    catId: parseInt(catId),
-                    subcatId: parseInt(subcatId),
-                  });
-                  console.log(`Added additional subcategory: ${subcatId}`);
-                });
-              }
+            if (
+              selectedAdditionalCategories[catId] &&
+              catId !== formData.documentcatrecid
+            ) {
+              allCategories.push({
+                catId: parseInt(catId),
+                subcatId: null, // Send null for subcategory
+              });
             }
           });
 
-          console.log(
-            "Final all subcategories for document creation:",
-            allSubcategories
-          );
-
-          // Create documents for each subcategory
-          const documentCreationPromises = allSubcategories.map(
-            async (subcatInfo, index) => {
+          const documentCreationPromises = allCategories.map(
+            async (catInfo, index) => {
               const documentData = {
                 ...baseDocumentData,
-                doccatid: subcatInfo.catId,
-                docsubcatid: subcatInfo.subcatId,
+                doccatid: catInfo.catId,
+                docsubcatid: catInfo.subcatId,
               };
 
+              // If subcatId is null, set file-related fields to null
+              if (!catInfo.subcatId) {
+                documentData.sampleDocBase64 = null;
+                documentData.templateDocBase64 = null;
+                documentData.sampleDocName = null;
+                documentData.templateDocName = null;
+              }
+
               try {
-                // Create document
                 const result = await createDocument(documentData);
 
                 if (result.statusCode === 200) {
-                  // Use the extractDocumentId function to get the ID
                   const documentId = extractDocumentId(result);
-
-                  console.log(
-                    `Created document ${index + 1} with ID:`,
-                    documentId
-                  );
-
                   return {
                     success: true,
                     documentResult: result,
                     documentId,
-                    subcatId: subcatInfo.subcatId,
-                    catId: subcatInfo.catId,
+                    catId: catInfo.catId,
+                    subcatId: catInfo.subcatId,
                   };
                 } else {
                   throw new Error(
@@ -1561,23 +1790,21 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
                 }
               } catch (error) {
                 console.error(
-                  `Error creating document for subcategory ${subcatInfo.subcatId}:`,
+                  `Error creating document for category ${catInfo.catId}:`,
                   error
                 );
                 return {
                   success: false,
                   error,
-                  subcatId: subcatInfo.subcatId,
-                  catId: subcatInfo.catId,
+                  catId: catInfo.catId,
+                  subcatId: catInfo.subcatId,
                 };
               }
             }
           );
 
-          // Wait for all document creation operations to complete
           const results = await Promise.allSettled(documentCreationPromises);
 
-          // Process results
           const successfulDocuments = [];
           const failedDocuments = [];
 
@@ -1589,115 +1816,38 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
             }
           });
 
-          console.log("Document creation summary:");
-          console.log("Successful documents:", successfulDocuments.length);
-          console.log("Failed documents:", failedDocuments.length);
-
-          // Refresh the documents table to get the latest data with actual IDs
           await refreshData();
-
-          // Wait a bit for the refresh to complete
           await new Promise((resolve) => setTimeout(resolve, 1000));
 
-          // Now get the actual document IDs from the refreshed table
-          const documentIdsFromTable = successfulDocuments.map((doc) => {
-            const docId = getDocumentIdFromTable(
-              formData.documentname,
-              doc.catId,
-              doc.subcatId
-            );
-            return {
-              documentId: docId,
-              subcatId: doc.subcatId,
-              catId: doc.catId,
-            };
-          });
+          // Only create links between documents that have valid subcategories
+          const documentsWithSubcategories = successfulDocuments.filter(
+            (doc) => doc.subcatId !== null
+          );
 
-          console.log("Document IDs from table:", documentIdsFromTable);
+          if (documentsWithSubcategories.length > 1) {
+            const linkPromises = [];
 
-          // Create links between all documents
-          const linkPromises = [];
-          const successfulLinks = [];
-          const failedLinks = [];
-
-          if (documentIdsFromTable.length > 1) {
-            // Create links from all documents to the first document
-            for (let i = 1; i < documentIdsFromTable.length; i++) {
-              // Link document i to the subcategory of the first document
+            for (let i = 1; i < documentsWithSubcategories.length; i++) {
               linkPromises.push(
                 addLinkedDocument(
-                  documentIdsFromTable[i].documentId,
-                  documentIdsFromTable[0].subcatId
+                  documentsWithSubcategories[i].documentId,
+                  documentsWithSubcategories[0].subcatId
                 )
-                  .then((linkResult) => {
-                    console.log(
-                      `Link created: Document ${documentIdsFromTable[i].documentId} -> Subcategory ${documentIdsFromTable[0].subcatId}`
-                    );
-                    successfulLinks.push({
-                      fromDocId: documentIdsFromTable[i].documentId,
-                      toSubcatId: documentIdsFromTable[0].subcatId,
-                      result: linkResult,
-                    });
-                    return linkResult;
-                  })
-                  .catch((error) => {
-                    console.error(
-                      `Failed to link document ${documentIdsFromTable[i].documentId} to subcategory ${documentIdsFromTable[0].subcatId}:`,
-                      error
-                    );
-                    failedLinks.push({
-                      fromDocId: documentIdsFromTable[i].documentId,
-                      toSubcatId: documentIdsFromTable[0].subcatId,
-                      error,
-                    });
-                    throw error;
-                  })
               );
             }
 
-            // Also link the first document to all other documents
-            for (let i = 1; i < documentIdsFromTable.length; i++) {
-              // Link first document to the subcategory of document i
+            for (let i = 1; i < documentsWithSubcategories.length; i++) {
               linkPromises.push(
                 addLinkedDocument(
-                  documentIdsFromTable[0].documentId,
-                  documentIdsFromTable[i].subcatId
+                  documentsWithSubcategories[0].documentId,
+                  documentsWithSubcategories[i].subcatId
                 )
-                  .then((linkResult) => {
-                    console.log(
-                      `Link created: Document ${documentIdsFromTable[0].documentId} -> Subcategory ${documentIdsFromTable[i].subcatId}`
-                    );
-                    successfulLinks.push({
-                      fromDocId: documentIdsFromTable[0].documentId,
-                      toSubcatId: documentIdsFromTable[i].subcatId,
-                      result: linkResult,
-                    });
-                    return linkResult;
-                  })
-                  .catch((error) => {
-                    console.error(
-                      `Failed to link document ${documentIdsFromTable[0].documentId} to subcategory ${documentIdsFromTable[i].subcatId}:`,
-                      error
-                    );
-                    failedLinks.push({
-                      fromDocId: documentIdsFromTable[0].documentId,
-                      toSubcatId: documentIdsFromTable[i].subcatId,
-                      error,
-                    });
-                    throw error;
-                  })
               );
             }
 
-            // Wait for all link operations to complete
             await Promise.allSettled(linkPromises);
           }
 
-          console.log("Link creation summary:");
-          console.log("Successful links:", successfulLinks.length);
-          console.log("Failed links:", failedLinks.length);
-
-          // Show a comprehensive summary
           let summaryMessage = "";
           if (successfulDocuments.length > 0) {
             summaryMessage += `Successfully created ${successfulDocuments.length} document(s). `;
@@ -1705,16 +1855,10 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
           if (failedDocuments.length > 0) {
             summaryMessage += `Failed to create ${failedDocuments.length} document(s). `;
           }
-          if (successfulLinks.length > 0) {
-            summaryMessage += `Successfully created ${successfulLinks.length} link(s). `;
-          }
-          if (failedLinks.length > 0) {
-            summaryMessage += `Failed to create ${failedLinks.length} link(s).`;
-          }
 
           if (successfulDocuments.length > 0) {
             showToast(
-              `Operation completed: ${successfulDocuments.length} documents created, ${successfulLinks.length} links created`,
+              `Operation completed: ${successfulDocuments.length} documents created`,
               "success"
             );
           } else {
@@ -1751,15 +1895,14 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
       validateForm,
       validateAdditionalCategories,
       selectedAdditionalCategories,
-      selectedAdditionalSubcategories,
       createDocument,
+      updateDocument, // Added the new updateDocument function
       extractDocumentId,
-      getDocumentIdFromTable,
       addLinkedDocument,
+      getFileBase64, // Added the new getFileBase64 function
     ]
   );
 
-  // Check if form is valid for enabling save button
   const isFormValid = useCallback(() => {
     return (
       formData.documentname &&
@@ -1773,7 +1916,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     );
   }, [formData, fieldErrors]);
 
-  // MEMOIZED VALUES (Must be defined after handler functions)
+  // MEMOIZED VALUES
   const columns = useMemo(() => {
     const baseColumns = [
       {
@@ -1883,6 +2026,23 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
         },
       },
       {
+        field: "linkeddoccat",
+        headerName: "Linked Category",
+        width: 150,
+        sortable: true,
+        renderCell: (params) => {
+          if (!params || !params.row) return "-";
+          const linkedCategory = params.row.linkeddoccat;
+          return linkedCategory ? (
+            <Tooltip title={linkedCategory} arrow>
+              <Chip label={linkedCategory} size="small" color="secondary" />
+            </Tooltip>
+          ) : (
+            "-"
+          );
+        },
+      },
+      {
         field: "documentsampledocname",
         headerName: "Sample Document",
         width: 180,
@@ -1893,7 +2053,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
           const docPath = params.row.documentsampledoc;
           return docName ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <FileIcon fileName={docName} />
+              {/* <FileIcon fileName={docName} /> */}
               <Tooltip title={`Click to preview ${docName}`} arrow>
                 <Button
                   size="small"
@@ -1922,7 +2082,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
           const docPath = params.row.documenttemplatedoc;
           return docName ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <FileIcon fileName={docName} />
+              {/* <FileIcon fileName={docName} /> */}
               <Tooltip title={`Click to preview ${docName}`} arrow>
                 <Button
                   size="small"
@@ -1942,7 +2102,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
       },
     ];
 
-    // Add user-specific columns if not role 4
     if (Number(roleid) !== 4) {
       baseColumns.push(
         {
@@ -1986,7 +2145,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
       );
     }
 
-    // Add actions column for role 1 (admin)
     if (Number(roleid) === 1) {
       baseColumns.push({
         field: "actions",
@@ -2009,7 +2167,8 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
               </ActionButton>
               <ActionButton
                 color="delete"
-                onClick={() => handleDelete(params.row.documentsrecid)}
+                // UPDATED: Pass the entire row object to handleDelete
+                onClick={() => handleDelete(params.row)}
                 disabled={isSaving || isDeleting[params.row.documentsrecid]}
                 title="Delete"
               >
@@ -2025,12 +2184,11 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
       });
     }
 
-    // Add applicability column for role 4 (incubatee)
     if (Number(roleid) === 4) {
       baseColumns.push({
         field: "applicability",
         headerName: "Action",
-        width: 180,
+        width: 250,
         sortable: false,
         filterable: false,
         renderCell: (params) => {
@@ -2040,14 +2198,41 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
           const isApplied = appliedDocuments.has(params.row.documentsrecid);
 
           return (
-            <Box>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                flexWrap: "wrap",
+              }}
+            >
               {isApplied ? (
-                <Chip
-                  icon={<CheckCircleIcon />}
-                  label="Marked (N/A)"
-                  color="success"
-                  variant="outlined"
-                />
+                <>
+                  <Chip
+                    icon={<CheckCircleIcon />}
+                    label="Marked (N/A)"
+                    color="success"
+                    variant="outlined"
+                    size="small"
+                  />
+                  <UnmarkButton
+                    variant="contained"
+                    size="small"
+                    onClick={() => handleUnmarkDocument(params.row)}
+                    disabled={isUnmarking[params.row.documentsrecid]}
+                    startIcon={
+                      isUnmarking[params.row.documentsrecid] ? (
+                        <CircularProgress size={16} color="inherit" />
+                      ) : (
+                        <UndoIcon />
+                      )
+                    }
+                  >
+                    {isUnmarking[params.row.documentsrecid]
+                      ? "Unmarking..."
+                      : "Unmark"}
+                  </UnmarkButton>
+                </>
               ) : (
                 <ApplyButton
                   variant="contained"
@@ -2082,14 +2267,15 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     isSaving,
     isDeleting,
     isApplying,
+    isUnmarking,
     appliedDocuments,
     previewDocument,
     openEditModal,
     handleDelete,
     handleApplyForDocument,
+    handleUnmarkDocument,
   ]);
 
-  // Define export configuration
   const exportConfig = useMemo(
     () => ({
       filename: "documents",
@@ -2098,7 +2284,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
     []
   );
 
-  // Custom export data transformer
   const onExportData = useMemo(
     () => (data) => {
       return data.map((doc, index) => ({
@@ -2160,7 +2345,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
         )}
       </Box>
 
-      {/* Use the ReusableDataGrid component */}
       <ReusableDataGrid
         data={documents}
         columns={columns}
@@ -2311,6 +2495,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
                     <MenuItem value="2">Monthly</MenuItem>
                     <MenuItem value="3">Quarterly</MenuItem>
                     <MenuItem value="4">Yearly</MenuItem>
+                    <MenuItem value="6">Ad Hoc</MenuItem>
                   </Select>
                   {fieldErrors.documentperiodicityrecid && (
                     <Typography variant="caption" color="error" sx={{ mt: 1 }}>
@@ -2318,6 +2503,24 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
                     </Typography>
                   )}
                 </FormControl>
+              </Grid>
+
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  margin="dense"
+                  name="documentname"
+                  label="Document Name *"
+                  type="text"
+                  variant="outlined"
+                  value={formData.documentname}
+                  onChange={handleChange}
+                  onBlur={(e) => validateField("documentname", e.target.value)}
+                  required
+                  disabled={isSaving}
+                  error={!!fieldErrors.documentname}
+                  helperText={fieldErrors.documentname}
+                />
               </Grid>
 
               <Grid item xs={12}>
@@ -2347,23 +2550,29 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  margin="dense"
-                  name="documentname"
-                  label="Document Name *"
-                  type="text"
-                  variant="outlined"
-                  value={formData.documentname}
-                  onChange={handleChange}
-                  onBlur={(e) => validateField("documentname", e.target.value)}
-                  required
-                  disabled={isSaving}
-                  error={!!fieldErrors.documentname}
-                  helperText={fieldErrors.documentname}
-                />
-              </Grid>
+              {/* Note for Applicability - Only show when applicability is selective (value 0) */}
+              {formData.documentapplystatus === 0 && (
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    margin="dense"
+                    name="documentapplicability"
+                    label="Note for Applicability *"
+                    multiline
+                    rows={2}
+                    variant="outlined"
+                    value={formData.documentapplicability}
+                    onChange={handleChange}
+                    disabled={isSaving}
+                    required={formData.documentapplystatus === 0}
+                    helperText={
+                      formData.documentapplystatus === 0
+                        ? "Please provide details about the selective applicability"
+                        : ""
+                    }
+                  />
+                </Grid>
+              )}
 
               <Grid item xs={12}>
                 <TextField
@@ -2405,21 +2614,6 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
                     fieldErrors.documentreferencelink ||
                     "Enter a valid URL (http:// or https://)"
                   }
-                />
-              </Grid>
-
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  margin="dense"
-                  name="documentapplicability"
-                  label="Note for Applicability"
-                  multiline
-                  rows={2}
-                  variant="outlined"
-                  value={formData.documentapplicability}
-                  onChange={handleChange}
-                  disabled={isSaving}
                 />
               </Grid>
 
@@ -2500,7 +2694,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
                 </Typography>
               </Grid>
 
-              {/* Additional Categories Section */}
+              {/* Additional Categories Section - Only show for Add mode, not Edit */}
               {!editDoc && (
                 <Grid item xs={12}>
                   <Box sx={{ mt: 2, mb: 1 }}>
@@ -2512,7 +2706,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
                       startIcon={<ExpandMoreIcon />}
                       sx={{ mb: 1 }}
                     >
-                      Add to Multiple Categories and Subcategories
+                      Add to Multiple Categories
                     </Button>
                     {showAdditionalCategories && (
                       <Box
@@ -2524,93 +2718,71 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
                         }}
                       >
                         <Typography variant="subtitle2" sx={{ mb: 2 }}>
-                          Select additional categories and subcategories. A
-                          separate document will be created for each selected
+                          Select additional categories. A separate document will
+                          be created for each selected category with null
                           subcategory:
                         </Typography>
 
-                        {cats.map((cat) => {
-                          const catId = String(cat.doccatrecid);
-                          const isSelected =
-                            selectedAdditionalCategories[catId] || false;
-                          const subcatsForCat = getSubcategoriesForCategory(
-                            cat.doccatrecid
-                          );
+                        <FormGroup>
+                          {cats.map((cat) => {
+                            const catId = String(cat.doccatrecid);
+                            const isSelected =
+                              selectedAdditionalCategories[catId] || false;
+                            const isPrimaryCategory =
+                              catId === String(formData.documentcatrecid);
 
-                          return (
-                            <Accordion key={cat.doccatrecid} sx={{ mb: 1 }}>
-                              <AccordionSummary
-                                expandIcon={<ExpandMoreIcon />}
-                                aria-controls={`panel-${cat.doccatrecid}-content`}
-                                id={`panel-${cat.doccatrecid}-header`}
-                              >
-                                <FormControlLabel
-                                  control={
-                                    <Checkbox
-                                      checked={isSelected}
-                                      onChange={(e) =>
-                                        handleCategoryCheckboxChange(
-                                          catId,
-                                          e.target.checked
-                                        )
-                                      }
-                                    />
-                                  }
-                                  label={cat.doccatname}
-                                />
-                              </AccordionSummary>
-                              <AccordionDetails>
-                                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                  Subcategories:
-                                </Typography>
-                                <FormGroup>
-                                  {subcatsForCat.length > 0 ? (
-                                    subcatsForCat.map((subcat) => (
-                                      <FormControlLabel
-                                        key={subcat.docsubcatrecid}
-                                        control={
-                                          <Checkbox
-                                            checked={
-                                              selectedAdditionalSubcategories[
-                                                subcat.docsubcatrecid
-                                              ] || false
-                                            }
-                                            onChange={(e) =>
-                                              handleSubcategoryCheckboxChange(
-                                                subcat.docsubcatrecid,
-                                                catId,
-                                                e.target.checked
-                                              )
-                                            }
-                                            disabled={!isSelected}
-                                          />
-                                        }
-                                        label={subcat.docsubcatname}
-                                      />
-                                    ))
-                                  ) : (
-                                    <Typography
-                                      variant="body2"
-                                      color="text.secondary"
-                                    >
-                                      No subcategories available for this
-                                      category
-                                    </Typography>
-                                  )}
-                                </FormGroup>
-                                {fieldErrors[`additional_cat_${catId}`] && (
-                                  <Typography
-                                    variant="caption"
-                                    color="error"
-                                    sx={{ mt: 1 }}
+                            return (
+                              <FormControlLabel
+                                key={cat.doccatrecid}
+                                control={
+                                  <Checkbox
+                                    checked={isSelected || isPrimaryCategory}
+                                    onChange={(e) =>
+                                      handleCategoryCheckboxChange(
+                                        catId,
+                                        e.target.checked
+                                      )
+                                    }
+                                    disabled={isPrimaryCategory || isSaving}
+                                  />
+                                }
+                                label={
+                                  <Box
+                                    sx={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                    }}
                                   >
-                                    {fieldErrors[`additional_cat_${catId}`]}
-                                  </Typography>
-                                )}
-                              </AccordionDetails>
-                            </Accordion>
-                          );
-                        })}
+                                    {cat.doccatname}
+                                    {isPrimaryCategory && (
+                                      <Chip
+                                        label="Primary"
+                                        size="small"
+                                        sx={{
+                                          ml: 1,
+                                          bgcolor: "primary.main",
+                                          color: "white",
+                                        }}
+                                      />
+                                    )}
+                                  </Box>
+                                }
+                              />
+                            );
+                          })}
+                        </FormGroup>
+
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            mt: 2,
+                            display: "block",
+                            color: "text.secondary",
+                          }}
+                        >
+                          Note: For additional categories, subcategory will be
+                          set to null
+                        </Typography>
                       </Box>
                     )}
                   </Box>
@@ -2848,9 +3020,7 @@ const DocumentsTable = forwardRef(({ title = "📄 Documents" }, ref) => {
         >
           <CircularProgress color="inherit" />
           <Typography sx={{ mt: 2 }}>
-            {editDoc
-              ? "Updating document..."
-              : "Creating documents and links..."}
+            {editDoc ? "Updating document..." : "Creating documents..."}
           </Typography>
         </Box>
       </StyledBackdrop>

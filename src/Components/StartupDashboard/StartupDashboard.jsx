@@ -1190,6 +1190,29 @@ const StartupDashboard = () => {
             <Typography variant="body2">---</Typography>
           ),
       },
+
+      {
+        field: "linkeddoccat",
+        headerName: "Linked Category",
+        width: 200,
+        sortable: true,
+        filterable: true,
+        renderCell: (params) => {
+          if (!params?.row?.linkeddoccat) return <span>-</span>;
+          return params.row.linkeddoccat;
+        },
+      },
+      {
+        field: "period_info",
+        headerName: "Period Info",
+        width: 200,
+        sortable: true,
+        filterable: true,
+        renderCell: (params) => {
+          if (!params?.row?.period_info) return <span>-</span>;
+          return params.row.period_info;
+        },
+      },
       // New columns for sample document
       {
         field: "documenttemplatedocname",
@@ -1744,7 +1767,7 @@ const StartupDashboard = () => {
             </div>
             <div className={styles.card}>
               <div className={styles.cardHeader}>
-                <div className={styles.cardTitle}>Pending</div>
+                <div className={styles.cardTitle}>Pending Document Types</div>
                 <div
                   className={styles.tooltip}
                   data-tooltip="Monthly due Documents"
@@ -1756,7 +1779,7 @@ const StartupDashboard = () => {
             </div>
             <div className={styles.card}>
               <div className={styles.cardHeader}>
-                <div className={styles.cardTitle}>Overdue</div>
+                <div className={styles.cardTitle}>Overdue Document Types</div>
                 <AlertCircle className={styles.iconOverdue} />
               </div>
               <div className={styles.cardContent}>{overdueDocuments}</div>
