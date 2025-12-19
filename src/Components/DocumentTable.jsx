@@ -82,6 +82,7 @@ export default function DocumentTable() {
   const [endDate, setEndDate] = useState(toYear ? new Date(toYear) : null);
   const [datesSelected, setDatesSelected] = useState(!!(fromYear && toYear));
 
+  console.log(companyDoc);
   // Sync date states with context and store initial values
   useEffect(() => {
     setStartDate(fromYear ? new Date(fromYear) : null);
