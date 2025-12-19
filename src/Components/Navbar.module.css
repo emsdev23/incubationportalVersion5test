@@ -445,3 +445,97 @@
     background-position: 200% 0;
   }
 }
+
+/* Network Status Notification Styles - Add these to your Navbar.module.css */
+
+/* Online Notification */
+.networkOnline {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1.5rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, #4caf50, #45a049);
+  color: white;
+  font-weight: 600;
+  font-size: 0.9rem;
+  box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+  z-index: 10000;
+  animation: slideDownFade 0.4s ease-out;
+}
+
+/* Offline Notification */
+.networkOffline {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1.5rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, #f44336, #e53935);
+  color: white;
+  font-weight: 600;
+  font-size: 0.9rem;
+  box-shadow: 0 6px 20px rgba(244, 67, 54, 0.4);
+  z-index: 10000;
+  animation: slideDownFade 0.4s ease-out, pulse 2s infinite;
+}
+
+/* Animations */
+@keyframes slideDownFade {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 6px 20px rgba(244, 67, 54, 0.4);
+  }
+  50% {
+    box-shadow: 0 6px 25px rgba(244, 67, 54, 0.6);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .networkOnline,
+  .networkOffline {
+    top: 70px;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.85rem;
+    max-width: 90%;
+  }
+
+  .networkOnline span,
+  .networkOffline span {
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .networkOnline,
+  .networkOffline {
+    padding: 0.625rem 1rem;
+    font-size: 0.8rem;
+  }
+
+  .networkOnline svg,
+  .networkOffline svg {
+    width: 18px;
+    height: 18px;
+  }
+}

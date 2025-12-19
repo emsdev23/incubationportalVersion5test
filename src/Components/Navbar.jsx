@@ -19,6 +19,8 @@ import {
   FolderKanban,
   FolderRoot,
   FileUser,
+  WifiOff, // Add this icon
+  Wifi, // Add this icon
 } from "lucide-react";
 import ITELLogo from "../assets/ITEL_Logo.png";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
@@ -31,6 +33,180 @@ import { AuthContext } from "../App";
 import ChangePasswordModal from "../Components/StartupDashboard/ChangePasswordModal";
 import ContactModal from "../Components/StartupDashboard/ContactModal";
 import NewChatModal from "../Components/ChatApp/NewChatModal";
+
+// Custom hook for network status
+
+const useNetworkStatus = () => {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showNotification, setShowNotification] = useState(false);
+  const previousStatusRef = useRef(navigator.onLine);
+  const checkTimeoutRef = useRef(null);
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    const updateNetworkStatus = (status, source) => {
+      const wasOnline = previousStatusRef.current;
+
+      if (wasOnline !== status) {
+        console.log(
+          `${status ? "✅" : "❌"} Network: ${
+            status ? "ONLINE" : "OFFLINE"
+          } (${source})`
+        );
+
+        setIsOnline(status);
+        setShowNotification(true);
+        previousStatusRef.current = status;
+
+        // Auto-hide online notification after 3 seconds
+        if (status) {
+          setTimeout(() => setShowNotification(false), 3000);
+        }
+      }
+    };
+
+    // Fast connectivity check with race condition
+    const checkConnectivity = async () => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1000);
+
+        // Race multiple endpoints for fastest response
+        await Promise.race([
+          fetch("https://www.google.com/generate_204", {
+            method: "HEAD",
+            mode: "no-cors",
+            cache: "no-cache",
+            signal: controller.signal,
+          }),
+          fetch("https://cloudflare.com/cdn-cgi/trace", {
+            method: "HEAD",
+            mode: "no-cors",
+            cache: "no-cache",
+            signal: controller.signal,
+          }),
+        ]);
+
+        clearTimeout(timeoutId);
+        updateNetworkStatus(true, "connectivity-check");
+      } catch (error) {
+        updateNetworkStatus(false, "connectivity-check");
+      }
+    };
+
+    // INSTANT offline detection via browser API
+    const handleOffline = () => {
+      console.log("⚡ INSTANT offline detection");
+      updateNetworkStatus(false, "browser-offline-event");
+    };
+
+    // INSTANT online detection via browser API
+    const handleOnline = () => {
+      console.log("⚡ INSTANT online detection");
+      // Optimistically show as online immediately
+      updateNetworkStatus(true, "browser-online-event");
+
+      // Then verify with actual request (but don't wait for it)
+      checkConnectivity();
+    };
+
+    // Detect network quality changes
+    const handleConnectionChange = () => {
+      const connection =
+        navigator.connection ||
+        navigator.mozConnection ||
+        navigator.webkitConnection;
+
+      if (connection) {
+        console.log(
+          `📡 Connection: ${connection.effectiveType}, ${connection.downlink}Mbps`
+        );
+
+        // If connection type changes, immediately check
+        if (checkTimeoutRef.current) {
+          clearTimeout(checkTimeoutRef.current);
+        }
+        checkTimeoutRef.current = setTimeout(checkConnectivity, 100);
+      }
+    };
+
+    // Check when page becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        console.log("👁️ Tab visible - checking network");
+        checkConnectivity();
+      }
+    };
+
+    // Check when user interacts (mouse/keyboard)
+    const handleUserInteraction = () => {
+      // Only check if we think we're offline
+      if (!previousStatusRef.current) {
+        if (checkTimeoutRef.current) {
+          clearTimeout(checkTimeoutRef.current);
+        }
+        checkTimeoutRef.current = setTimeout(checkConnectivity, 200);
+      }
+    };
+
+    // Initial check
+    checkConnectivity();
+
+    // Regular polling (every 3 seconds as backup)
+    intervalRef.current = setInterval(checkConnectivity, 3000);
+
+    // Add all event listeners for instant detection
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Mouse/keyboard activity detection (only when offline)
+    window.addEventListener("mousemove", handleUserInteraction, {
+      passive: true,
+      once: true,
+    });
+    window.addEventListener("keydown", handleUserInteraction, {
+      passive: true,
+      once: true,
+    });
+    window.addEventListener("click", handleUserInteraction, {
+      passive: true,
+      once: true,
+    });
+
+    // Connection API
+    const connection =
+      navigator.connection ||
+      navigator.mozConnection ||
+      navigator.webkitConnection;
+    if (connection) {
+      connection.addEventListener("change", handleConnectionChange);
+    }
+
+    // Cleanup
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+      if (checkTimeoutRef.current) {
+        clearTimeout(checkTimeoutRef.current);
+      }
+
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("mousemove", handleUserInteraction);
+      window.removeEventListener("keydown", handleUserInteraction);
+      window.removeEventListener("click", handleUserInteraction);
+
+      if (connection) {
+        connection.removeEventListener("change", handleConnectionChange);
+      }
+    };
+  }, []);
+
+  return { isOnline, showNotification };
+};
 
 const Navbar = () => {
   const {
@@ -51,6 +227,10 @@ const Navbar = () => {
   const { setIsAuthenticated } = useContext(AuthContext);
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Network status hook
+  const { isOnline, showNotification } = useNetworkStatus();
+  console.log("Network status - isOnline:", isOnline);
 
   // --- State Variables ---
   const [isExpanded, setIsExpanded] = useState(false);
@@ -114,7 +294,6 @@ const Navbar = () => {
       FolderKanban: <FolderKanban size={20} />,
       FolderRoot: <FolderRoot size={20} />,
       FileUser: <FileUser size={20} />,
-      // Add more icon mappings as needed
     };
     return iconMap[iconName] || <Home size={20} />;
   };
@@ -253,28 +432,23 @@ const Navbar = () => {
 
   // --- Render Logic ---
 
-  // Define paths that should be in the top navigation bar, not sidebar
   const topNavPaths = [
     "/Incubation/Dashboard/Chats",
     "/Incubation/Dashboard/ChatHistory",
   ];
 
-  // Filter API data to get only sidebar items
   const sidebarMenuItems = menuItemsFromAPI
     .filter((item) => {
-      // Exclude top nav items
       if (topNavPaths.includes(item.guiappspath)) {
         return false;
       }
-      // Only include startup dashboard for incubatees (roleid 4)
       if (item.guiappspath === "/startup/Dashboard") {
         return Number(roleid) === 4 || Number(sessionRoleid) === 4;
       }
-      // Include all other items based on read access
       return item.appsreadaccess === 1;
     })
     .map((item) => ({
-      ...item, // Keep original item data
+      ...item,
       label: item.guiappsappname,
       icon: getIconComponent(item.guiappsappicon),
       path: item.guiappspath,
@@ -283,7 +457,6 @@ const Navbar = () => {
         item.guiappspath === "/startup/Dashboard",
     }));
 
-  // Add Audit Logs manually to the sidebar menu items
   const allSidebarItems = [
     ...sidebarMenuItems,
     {
@@ -297,7 +470,6 @@ const Navbar = () => {
     },
   ];
 
-  // Check if user has access to chat functionality
   const hasChatAccess = menuItemsFromAPI.some(
     (item) =>
       item.guiappspath === "/Incubation/Dashboard/Chats" &&
@@ -312,6 +484,8 @@ const Navbar = () => {
 
   return (
     <>
+      {/* Network Status Notification */}
+
       {/* Top Navigation Bar */}
       <div className={styles.topNavbar}>
         <div className={styles.topNavbarLeft}>
@@ -322,6 +496,18 @@ const Navbar = () => {
           />
           <div className={styles.topTitle}>
             <h1>ITEL Incubation Portal</h1>
+            {showNotification && (
+              <div
+                className={
+                  isOnline ? styles.networkOnline : styles.networkOffline
+                }
+              >
+                {isOnline ? <Wifi size={20} /> : <WifiOff size={20} />}
+                <span>
+                  {isOnline ? "Back Online" : "No Internet Connection"}
+                </span>
+              </div>
+            )}
             <p>
               {Number(roleid) === 1
                 ? "Admin Dashboard"
@@ -445,8 +631,7 @@ const Navbar = () => {
       >
         <nav className={styles.navMenu}>
           {menuItemsLoading
-            ? // Shimmer loading effect for menu items
-              Array(5)
+            ? Array(5)
                 .fill(0)
                 .map((_, index) => (
                   <div
@@ -468,7 +653,6 @@ const Navbar = () => {
             : allSidebarItems.map((item, index) => {
                 if (!item.visible && item.visible !== undefined) return null;
 
-                // Handle modal items like Audit Logs
                 if (item.isModal) {
                   return (
                     <div
@@ -493,7 +677,6 @@ const Navbar = () => {
                   );
                 }
 
-                // Handle regular navigation items
                 return (
                   <div
                     key={item.guiappsrecid || index}
